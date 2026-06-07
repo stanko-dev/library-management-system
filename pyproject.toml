@@ -1,0 +1,21 @@
+[project]
+name = "library-system"
+version = "1.0.0"
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5", "pytest-mock>=3.14"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+relative_files = true
+omit = ["**/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true

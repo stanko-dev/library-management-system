@@ -1,0 +1,17 @@
+# AI Agent Rules — Library Management System
+
+## Hard constraints (never violate)
+- NEVER write a concrete repository or strategy class without first defining its interface as an abc.ABC.
+- ALWAYS practice TDD: write the failing test first, then the implementation.
+- NEVER use external databases, network calls, file I/O, or third-party APIs. All storage is in-memory.
+- Inject all dependencies through constructors (Dependency Injection). Never instantiate dependencies inside a class.
+
+## Quality targets
+- Branch coverage >= 85% (assignment minimum is 70%).
+- 200+ unit and integration tests.
+- 0 bugs, 0 vulnerabilities, Maintainability rating A or B.
+
+## Design
+- Layers: models (entities) -> storage (ABC repositories + in-memory impl) -> services (business logic).
+- Apply SOLID. Functions must be small, typed, documented, duplication-free.
+- Required GoF patterns: Strategy (fine calculation), Observer (book availability notification).
