@@ -18,4 +18,4 @@ class Fine:
         if not self.loan_id or not self.loan_id.strip():
             raise ValueError("loan_id cannot be empty")
         if self.amount <= Decimal("0"):
-            raise ValueError("amount must be positive (got {self.amount})")
+            raise ValueError(f"amount must be positive (got {self.amount})")

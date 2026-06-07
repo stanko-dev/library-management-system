@@ -51,10 +51,9 @@ class EventBus(BookAvailabilitySubject):
             self._observers.append(observer)
 
     def unsubscribe(self, observer: BookAvailabilityObserver) -> None:
-        try:
-            self._observers.remove(observer)
-        except ValueError:
+        if observer not in self._observers:
             raise ValueError(f"Observer is not subscribed: {observer!r}")
+        self._observers.remove(observer)
 
     def notify(self, event: BookAvailableEvent) -> None:
         for observer in list(self._observers):   # snapshot prevents mutation bugs

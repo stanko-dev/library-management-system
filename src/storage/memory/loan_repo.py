@@ -30,17 +30,17 @@ class InMemoryLoanRepository(LoanRepository):
         del self._store[loan_id]
 
     def find_by_reader(self, reader_id: str) -> list[Loan]:
-        return [l for l in self._store.values() if l.reader_id == reader_id]
+        return [loan for loan in self._store.values() if loan.reader_id == reader_id]
 
     def find_by_book(self, book_id: str) -> list[Loan]:
-        return [l for l in self._store.values() if l.book_id == book_id]
+        return [loan for loan in self._store.values() if loan.book_id == book_id]
 
     def find_active(self) -> list[Loan]:
-        return [l for l in self._store.values() if l.is_active]
+        return [loan for loan in self._store.values() if loan.is_active]
 
     def find_active_by_reader(self, reader_id: str) -> list[Loan]:
-        return [l for l in self._store.values()
-                if l.reader_id == reader_id and l.is_active]
+        return [loan for loan in self._store.values()
+                if loan.reader_id == reader_id and loan.is_active]
 
     def find_overdue(self, as_of: datetime) -> list[Loan]:
-        return [l for l in self._store.values() if l.is_overdue(as_of)]
+        return [loan for loan in self._store.values() if loan.is_overdue(as_of)]

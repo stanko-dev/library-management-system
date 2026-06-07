@@ -3,8 +3,9 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from models.reservation import Reservation
-from models.enums import MembershipType, ReservationStatus
+from models.enums import ReservationStatus
 from storage.interfaces import ReservationRepository, BookRepository, ReaderRepository
+from services.priority import reservation_priority_key
 from utils.exceptions import (
     ReaderNotFoundError,
     BookNotFoundError,
@@ -12,21 +13,6 @@ from utils.exceptions import (
     DuplicateReservationError,
     ReservationNotFoundError,
 )
-
-_MEMBERSHIP_RANK: dict[MembershipType, int] = {
-    MembershipType.PREMIUM: 0,
-    MembershipType.STANDARD: 1,
-}
-
-
-def _priority_key(res: Reservation, reader_repo: ReaderRepository) -> tuple:
-    """Sort key for the reservation queue: PREMIUM (0) before STANDARD (1),
-    ties broken by earliest created_at."""
-    reader = reader_repo.get_by_id(res.reader_id)
-    rank = _MEMBERSHIP_RANK.get(
-        reader.membership if reader else MembershipType.STANDARD, 1
-    )
-    return (rank, res.created_at)
 
 
 class ReservationService:
@@ -124,4 +110,4 @@ class ReservationService:
         active = self._reservation_repo.find_active_by_book(book_id)
         if not active:
             return None
-        return min(active, key=lambda r: _priority_key(r, self._reader_repo))
+        return min(active, key=lambda r: reservation_priority_key(r, self._reader_repo))
