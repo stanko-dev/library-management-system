@@ -95,6 +95,22 @@ pytest \
 - **I** — keep repository ABCs focused; don't bloat with unused methods.
 - **D** — services depend on ABC interfaces, never on concrete classes.
 
+## Skills
+
+Claude Code skills live in `.claude/skills/` and are loaded **on demand** — invoke them
+when the task explicitly touches their domain:
+
+| Skill | File | When to load |
+|---|---|---|
+| `architecture` | `.claude/skills/architecture/SKILL.md` | Creating or modifying models, repos, or services; deciding which layer new code belongs to. |
+| `testing` | `.claude/skills/testing/SKILL.md` | Writing, modifying, or reviewing tests; configuring coverage reports. |
+
+The skills complement but do **not** replace the always-on rules:
+
+- `.cursorrules` — condensed hard rules loaded automatically by Cursor on every prompt.
+- `.cursor/rules/architecture.md` — full layer and pattern description (always-on).
+- `.cursor/rules/testing.md` / `.cursor/rules/testing_strategy.md` — TDD and coverage guide (always-on).
+
 ## See also
 
 - `.cursorrules` — condensed hard rules for AI agents.
