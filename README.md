@@ -1,244 +1,233 @@
 # Student Project Support System
 
-<!-- ────────────────────────────────────────────────────────────────────────────
-  BADGE INSTRUCTIONS
-  ─────────────────
-  Replace the three placeholder URLs below before publishing:
+> An in-memory system for managing student projects, teams and deadlines — built to demonstrate clean layered architecture, GoF design patterns, SOLID and a fully automated quality pipeline.
 
-  1. CI badge
-     GitHub → Actions tab → select the "CI" workflow → copy the badge Markdown
-     from the "…" menu (top-right of the workflow page).
-     Format: https://github.com/<OWNER>/<REPO>/actions/workflows/ci-pipeline.yml/badge.svg
-
-  2. SonarCloud Quality Gate badge
-     SonarCloud → your project → Project Information (bottom-left) →
-     "Get project badges" → select "Quality Gate Status" → copy the Markdown.
-
-  3. SonarCloud Coverage badge
-     Same dialog as above → select "Coverage" → copy the Markdown.
-──────────────────────────────────────────────────────────────────────────── -->
-
+<!-- Badges -->
 [![CI](https://github.com/stanko-dev/library-management-system/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/stanko-dev/library-management-system/actions/workflows/ci-pipeline.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=stanko-dev_library-management-system&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=stanko-dev_library-management-system)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=stanko-dev_library-management-system&metric=coverage)](https://sonarcloud.io/summary/new_code?id=stanko-dev_library-management-system)
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=stanko-dev_library-management-system&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=stanko-dev_library-management-system)
+![Tests](https://img.shields.io/badge/tests-541%20passing-brightgreen)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.1.0-informational)
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Tech Stack](#tech-stack)
+- [Architecture](#architecture)
+- [Design Patterns](#design-patterns)
+- [Business Rules](#business-rules)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Testing & Reports](#testing--reports)
+- [CI/CD & Quality Gate](#cicd--quality-gate)
+- [AI-Driven Setup](#ai-driven-setup)
+- [License](#license)
 
 ---
 
 ## Overview
 
-An **in-memory Student Project Support System** written in Python 3.12. The system
-manages student projects, team membership, milestone submissions, and penalty enforcement
-without an external database — all state lives in plain Python `dict`s for the lifetime
-of the process.
+The system supports the lifecycle of student projects within a course. A **Coordinator** creates projects and assigns teams; **Students** submit milestones before their deadlines. The system automatically calculates late-submission penalties, manages a priority queue for joining full teams, and blocks students who breach discipline thresholds.
 
-**Quality targets met:**
+All data is kept **in memory** behind repository interfaces — there is no external database or API. This keeps the focus on architecture, testability and clean code.
 
-| Metric | Target | Achieved |
-|---|---|---|
-| Branch coverage | ≥ 85% | 100% |
-| Tests | ≥ 200 | 541 |
-| Bugs / vulnerabilities | 0 | 0 |
-| Maintainability | A or B | A |
+## Key Features
 
----
+- Project, team, milestone and submission management.
+- Pluggable late-submission penalty algorithms (Strategy pattern).
+- Event-driven notifications for deadlines and team availability (Observer pattern).
+- Priority queue for joining teams at capacity.
+- Automatic student blocking on threshold breaches.
+- 541 unit & integration tests, 100% branch coverage.
+- Fully automated CI/CD with SonarQube quality gate and downloadable test artifacts.
+
+## Tech Stack
+
+| Area | Technology |
+|------|------------|
+| Language | Python 3.12 |
+| Testing | pytest · pytest-cov · pytest-mock |
+| Static analysis | SonarQube Cloud |
+| CI/CD | GitHub Actions |
+| Containerization | Docker (isolated test runner) |
 
 ## Architecture
 
-The codebase is split into four layers. Dependencies flow strictly downward; no layer
-imports from a layer above it.
+The codebase is split into four layers. Dependencies flow strictly downward — no layer imports from a layer above it.
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                       services/                             │  Business logic
-│  ProjectService · MilestoneService · TeamService            │  (all deps injected)
-│  MembershipService                                          │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ depends on ABCs only
-┌──────────────────────▼──────────────────────────────────────┐
-│               storage/interfaces.py                          │  Repository ABCs
-│  StudentRepository · TeamRepository · ProjectRepository      │  (abc.ABC)
-│  MilestoneRepository · SubmissionRepository                  │
-│  PenaltyRepository · QueueRequestRepository                  │
-└──────────────────────▲──────────────────────────────────────┘
-                       │ implemented by
-┌──────────────────────┴──────────────────────────────────────┐
-│             storage/memory/                                  │  In-memory impls
-│  InMemoryStudentRepository · InMemoryTeamRepository          │  (dict-backed)
-│  InMemoryProjectRepository · InMemoryMilestoneRepository     │
-│  InMemorySubmissionRepository · InMemoryPenaltyRepository    │
-│  InMemoryQueueRequestRepository                              │
-└────────────────────────────────────────────────────────────┘
-┌────────────────────────────────────────────────────────────┐
-│                     models/                                 │  Pure data
-│  Student · Team · Project · Milestone                       │  (dataclasses, no I/O)
-│  Submission · Penalty · QueueRequest                        │
-└────────────────────────────────────────────────────────────┘
-┌────────────────────────────────────────────────────────────┐
-│                     utils/                                  │  Cross-cutting
-│  exceptions.py                                              │  (no service imports)
-└────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    SVC["services/ — business logic<br/>(ProjectService, MilestoneService,<br/>TeamService, MembershipService)"]
+    INT["storage/ interfaces — abc.ABC<br/>(repository contracts)"]
+    MEM["storage/memory/ — in-memory<br/>dict-backed implementations"]
+    MOD["models/ — entity dataclasses<br/>(pure data, no I/O)"]
+    UTL["utils/ — exceptions<br/>(cross-cutting)"]
+
+    SVC -->|depends on abstractions| INT
+    INT -.implemented by.-> MEM
+    SVC --> MOD
+    SVC --> UTL
 ```
 
-**Key principles applied:**
+**SOLID applied:** each service has a single responsibility; new penalty algorithms and notification handlers are added by implementing an interface (Open/Closed); services depend only on `abc.ABC` abstractions, with concrete repositories injected through the constructor (Dependency Inversion).
 
-- **Dependency Inversion** — every service receives repository ABCs via constructor
-  injection; it never calls `InMemory*` constructors directly.
-- **Single Responsibility** — each service owns exactly one domain workflow.
-- **Open/Closed** — new penalty strategies and new event observers are added by
-  implementing an interface, not by editing existing classes.
-- **Liskov Substitution** — every `InMemory*Repository` is a drop-in substitute for
-  its ABC; the test suite exercises both with and without mocks.
-- **Interface Segregation** — seven focused repository ABCs rather than one monolithic
-  data-access interface.
-
----
+Full UML diagrams (Use Case, Domain Model, Class Diagram) live in [`docs/diagrams/`](docs/diagrams) as Mermaid and render directly on GitHub.
 
 ## Design Patterns
 
-### Strategy — Penalty Calculation
+### Strategy — penalty calculation
 
-**Where:** `src/services/penalty_strategies.py`
+A `PenaltyStrategy` interface with interchangeable algorithms. `MilestoneService` receives a strategy via its constructor and calls `calculate()` without knowing which algorithm runs.
 
-`MilestoneService` receives a `PenaltyStrategy` instance via its constructor. It calls
-`strategy.calculate(due_date, submitted_date)` without knowing which algorithm is active.
-Four concrete strategies ship out of the box:
+```mermaid
+classDiagram
+    class PenaltyStrategy {
+        <<interface>>
+        +calculate(days_late) int
+    }
+    PenaltyStrategy <|.. FlatPenaltyStrategy
+    PenaltyStrategy <|.. ProgressivePenaltyStrategy
+    PenaltyStrategy <|.. WeekendExemptPenaltyStrategy
+    PenaltyStrategy <|.. CappedPenaltyStrategy
+```
 
-| Strategy | Algorithm |
-|---|---|
-| `FlatPenaltyStrategy` | `overdue_days × points_per_day` |
-| `ProgressivePenaltyStrategy` | Day *n* costs `base_points + (n−1) × increment`; total capped at `cap` |
-| `WeekendExemptPenaltyStrategy` | Weekdays only (Mon–Fri) in the overdue window × `points_per_day` |
-| `CappedPenaltyStrategy` | Decorator — wraps any inner strategy and clamps its result to a ceiling |
+### Observer — notifications
 
-**Rationale:** Switching the penalty policy for a course requires only passing a
-different object at the composition root; no service code changes and no conditional
-chains (`if policy == "flat": …`).
-
-### Observer — Milestone Status and Team-Spot Notifications
-
-**Where:** `src/services/events.py` (bus), `src/services/notification.py` (observer)
-
-`MilestoneService` and `TeamService` both hold a reference to `DeadlineSubject` (an ABC).
-
-- After recording a submission or marking a milestone missed, `MilestoneService` calls
-  `event_bus.notify_milestone_status(MilestoneStatusChangedEvent(...))`.
-- After a member leaves a team, `TeamService` calls
-  `event_bus.notify_team_spot(TeamSpotAvailableEvent(...))`.
-
-`StudentNotifier` is the concrete observer:
-- On a `MilestoneStatusChangedEvent`: looks up all team members of the affected project
-  and records a `Notification` for each.
-- On a `TeamSpotAvailableEvent`: finds the highest-priority pending queue request for the
-  team (fewest active projects first, then FIFO) and records a `Notification` for that
-  student.
-
-**Rationale:** `MilestoneService` and `TeamService` have no knowledge of notifications,
-queue lookups, or messaging. Adding a new reaction to a milestone change (e.g., sending
-an email) means implementing `DeadlineObserver` and subscribing it — zero changes to
-existing code.
-
----
+A `DeadlineSubject` publishes events; observers such as `StudentNotifier` react when a milestone status changes or a team spot frees up. Services stay decoupled from the notification mechanism.
 
 ## Business Rules
 
-### Student Blocking
+- **Progressive penalty:** points grow per overdue day, bounded by a maximum cap.
+- **Team join queue:** when a spot frees up, priority goes to the student with the fewest active projects; ties break by request time (FIFO). Requests expire after 7 days.
+- **Student blocking:** a student is blocked when unresolved penalty points ≥ 10 **or** missed deadlines ≥ 3. Blocked students cannot join teams.
+- **Project status flow:** `DRAFT → ACTIVE → COMPLETED → ARCHIVED` (ARCHIVED is terminal; ACTIVE requires an assigned team).
 
-A student is **blocked** (cannot join teams) when either condition holds (thresholds are
-configurable at the composition root; integration tests use 10 points and 3 deadlines):
+## Project Structure
 
-- Total **unresolved penalty points** ≥ `max_unresolved_points`, **or**
-- **Missed deadlines count** ≥ `max_missed_deadlines`
-
-`MembershipService.evaluate()` recomputes the blocking status atomically. A coordinator
-can also force-block or force-unblock a student regardless of thresholds via
-`MembershipService.block()` / `MembershipService.unblock()`.
-
-### Team-Join Priority Queue
-
-When a team is full, join requests are queued. When a spot opens up, the student with
-the **lowest `active_projects_count`** is notified first. Within the same count, the
-student who queued **earliest** wins (FIFO). Queue requests expire automatically after
-**7 days** (configurable via `TeamService(expiry_days=...)`).
-
-### Project Status Transitions
-
-| From | Allowed transitions |
-|---|---|
-| `DRAFT` | `ACTIVE` (requires a team to be assigned first), `ARCHIVED` |
-| `ACTIVE` | `COMPLETED`, `ARCHIVED` |
-| `COMPLETED` | `ARCHIVED` |
-| `ARCHIVED` | *(terminal — no further transitions)* |
-
-### Late Submission Penalties
-
-One `Penalty` record is created **per team member** when a milestone is submitted after
-its due date or explicitly marked as MISSED. The point value is determined by the
-configured `PenaltyStrategy`. On-time submissions produce no penalty records.
-
----
-
-## Running Tests Locally
-
-```bash
-# 1. Create and activate a virtual environment (one-time setup)
-python3.12 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 2. Install the project in development mode
-pip install -e ".[dev]"
-
-# 3. Run all tests with branch coverage
-pytest --cov=src --cov-branch --cov-report=term-missing
-
-# 4. Full CI report (produces coverage.xml, junit.xml, htmlcov/)
-pytest \
-  --cov=src --cov-branch \
-  --cov-report=term-missing \
-  --cov-report=xml:coverage.xml \
-  --cov-report=html:htmlcov \
-  --junitxml=junit.xml
+```text
+library-management-system/
+├── src/
+│   ├── models/                  # Entity dataclasses — pure data, no I/O
+│   │   ├── enums.py             #   status & role enumerations
+│   │   ├── student.py           #   Student
+│   │   ├── team.py              #   Team
+│   │   ├── project.py           #   Project
+│   │   ├── milestone.py         #   Milestone (deadline)
+│   │   ├── submission.py        #   Submission
+│   │   ├── penalty.py           #   Penalty
+│   │   └── queue_request.py     #   Team-join request
+│   ├── storage/                 # Persistence abstraction (in-memory)
+│   │   ├── interfaces.py        #   abstract repository contracts (abc.ABC)
+│   │   └── memory/              #   dict-backed implementations
+│   ├── services/                # Business logic — dependencies injected
+│   │   ├── project_service.py   #   create projects, assign teams, status flow
+│   │   ├── milestone_service.py #   submit milestones, apply penalties
+│   │   ├── team_service.py      #   priority join-queue, capacity
+│   │   ├── membership_service.py#   block / unblock students
+│   │   ├── penalty_strategies.py#   Strategy pattern (penalty algorithms)
+│   │   └── events.py            #   Observer pattern (notifications)
+│   └── utils/
+│       └── exceptions.py        #   domain-specific exceptions
+├── tests/
+│   ├── unit/                    # isolated unit tests (mocks via pytest-mock)
+│   └── integration/             # end-to-end scenario tests (real components)
+├── docs/
+│   ├── requirements.md          # problem statement, actors, use cases
+│   └── diagrams/                # UML in Mermaid: use-case, domain, class
+├── .claude/
+│   └── skills/                  # portable Agent Skills (loaded on demand)
+│       ├── architecture/        #   layered-architecture skill (+ reference.md)
+│       └── testing/             #   TDD & coverage skill
+├── .cursor/
+│   └── rules/                   # always-on AI rules (architecture.md, testing.md)
+├── .github/
+│   └── workflows/
+│       └── ci-pipeline.yml      # CI: build → test+coverage → Sonar → artifacts
+├── .cursorrules                 # global AI rules (no code without interfaces, TDD)
+├── CLAUDE.md                    # Claude Code project context
+├── Dockerfile                   # isolated test-run container
+├── pyproject.toml               # dependencies + pytest/coverage config
+├── sonar-project.properties     # SonarQube Cloud configuration
+└── README.md
 ```
 
-The test suite is split into two directories:
+## Getting Started
 
-| Directory | Purpose |
-|---|---|
-| `tests/unit/` | Each class tested in isolation; all collaborators are mocked via `pytest-mock`. |
-| `tests/integration/` | Real in-memory repositories wired together; end-to-end workflows. |
+**Requirements:** Python 3.12+
 
----
+```bash
+# 1. Clone
+git clone https://github.com/stanko-dev/library-management-system.git
+cd library-management-system
 
-## Coverage Report and CI Artifacts
+# 2. Create a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-### HTML report (local)
+# 3. Install (with dev dependencies)
+pip install -e ".[dev]"
+```
 
-After running the full CI report command above, open `htmlcov/index.html` in any
-browser. Line- and branch-level coverage is highlighted inline.
+## Testing & Reports
 
-### GitHub Actions artifacts
+```bash
+# Run all tests
+pytest -v
 
-Every CI run uploads a `test-reports` artifact containing:
+# Run with branch coverage and a missing-lines report
+pytest --cov=src --cov-branch --cov-report=term-missing
 
-| File | Consumer |
-|---|---|
-| `coverage.xml` | SonarCloud — branch coverage ingested automatically |
-| `junit.xml` | GitHub Actions test-results panel |
-| `htmlcov/` | Human review — download the artifact and open `index.html` |
+# Generate the HTML coverage report
+pytest --cov=src --cov-report=html
+# then open htmlcov/index.html in a browser
+```
 
-To download: **Actions tab → select a run → Artifacts → test-reports**.
+The suite generates three report types:
 
----
+- `coverage.xml` — coverage data for SonarQube.
+- `junit.xml` — test results for SonarQube.
+- `htmlcov/` — human-readable coverage (see which lines are covered).
 
-## Diagrams
+Run the suite in an isolated container:
 
-All diagrams live in `docs/diagrams/` as GitHub-renderable Mermaid fenced code blocks.
-Open any `.md` file directly on GitHub to see the rendered diagram.
+```bash
+docker build -t sps-tests . && docker run --rm sps-tests
+```
 
-| File | Diagram type | What it shows |
-|---|---|---|
-| `use-case.md` | Use Case | Actors (Student, Coordinator) and the 6 use cases with «include» relationships |
-| `domain-model.md` | Class (domain model) | Entities, enumerations, and their multiplicities |
-| `class-diagram.md` | Class (full) | All layers: models, repository ABCs, in-memory impls, Strategy hierarchy, Observer hierarchy, services, and dependency arrows |
+## CI/CD & Quality Gate
 
-For a narrative description of each use case (including main and alternative flows),
-see [`docs/requirements.md`](docs/requirements.md).
+Every push and pull request triggers [`ci-pipeline.yml`](.github/workflows/ci-pipeline.yml), which:
+
+1. Checks out the code and sets up Python 3.12.
+2. Installs dependencies and builds (compiles) the sources.
+3. Runs the test suite and generates coverage reports.
+4. Uploads `coverage.xml`, `junit.xml` and `htmlcov/` as the downloadable **`test-reports`** artifact.
+5. Sends results to SonarQube Cloud for the Quality Gate.
+
+The `main` branch is protected: changes must go through a pull request, and a PR cannot be merged while the pipeline is red or the Quality Gate fails.
+
+| Metric | Result |
+|--------|--------|
+| Quality Gate | Passed |
+| Coverage | 100% |
+| Tests | 541 |
+| Bugs / Vulnerabilities | 0 / 0 |
+| Maintainability | A |
+
+## AI-Driven Setup
+
+The repository is adapted for autonomous AI agents:
+
+- **Rules** (always-on, local): `.cursorrules` and `.cursor/rules/` hold project conventions — no code without interfaces, TDD, no external DB/API.
+- **Skills** (on-demand, portable): `.claude/skills/` contains self-contained Agent Skills (`architecture`, `testing`) that load only when a task matches their description and travel with the repo, so any developer who clones it gets them automatically.
+- `CLAUDE.md` provides the always-loaded project context for Claude Code.
+
+## License
+
+This project is licensed under the MIT License — see [`LICENSE`](LICENSE) for details.
