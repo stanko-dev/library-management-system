@@ -1,58 +1,55 @@
 # Use Case Diagram
 
-Actors and their interactions with the Library Management System.
+Actors and their interactions with the Student Project Support System.
 
-- **Reader** — a registered library member who borrows, reserves, and pays fines.
-- **Librarian** — library staff who processes loans/returns and manages reader standing.
+- **Student** — a registered participant who submits milestones and requests to join project teams.
+- **Coordinator** — academic staff who creates and manages projects, assigns teams, applies penalties, and manages student standing.
 
 ```mermaid
 graph LR
     %% ── Actors ──────────────────────────────────────────────────────
-    Reader(("Reader"))
-    Librarian(("Librarian"))
+    Student(("Student"))
+    Coordinator(("Coordinator"))
 
     %% ── System boundary ─────────────────────────────────────────────
-    subgraph LMS ["Library Management System"]
+    subgraph SPSS ["Student Project Support System"]
         direction TB
 
-        UC1(["Issue Book\n(Borrow)"])
-        UC2(["Return Book"])
-        UC3(["Reserve Book"])
-        UC4(["Cancel Reservation"])
-        UC5(["Pay Fine"])
-        UC6(["Block / Unblock Reader"])
+        UC1(["Create Project"])
+        UC2(["Assign Team"])
+        UC3(["Submit Milestone"])
+        UC4(["Request to Join Team"])
+        UC5(["Apply Penalty"])
+        UC6(["Block Student"])
 
         %% ── «include» relationships ─────────────────────────────────
-        CHK["«include»\nCheck Reader Eligibility"]
-        CAL["«include»\nCalculate Fine"]
-        QUE["«include»\nEvaluate Reservation Queue"]
+        CAL["«include»\nCalculate Penalty Points"]
+        CHK["«include»\nCheck Student Eligibility"]
+        EVL["«include»\nEvaluate Block Thresholds"]
 
-        UC1 -.->|«include»| CHK
-        UC2 -.->|«include»| CAL
-        UC2 -.->|«include»| QUE
-        UC6 -.->|«include»| CHK
+        UC3 -.->|«include»| CAL
+        UC4 -.->|«include»| CHK
+        UC6 -.->|«include»| EVL
     end
 
-    %% ── Reader associations ─────────────────────────────────────────
-    Reader --> UC1
-    Reader --> UC2
-    Reader --> UC3
-    Reader --> UC4
-    Reader --> UC5
+    %% ── Student associations ─────────────────────────────────────────
+    Student --> UC3
+    Student --> UC4
 
-    %% ── Librarian associations ───────────────────────────────────────
-    Librarian --> UC1
-    Librarian --> UC2
-    Librarian --> UC6
+    %% ── Coordinator associations ─────────────────────────────────────
+    Coordinator --> UC1
+    Coordinator --> UC2
+    Coordinator --> UC5
+    Coordinator --> UC6
 ```
 
 ## Use Case Descriptions
 
 | Use Case | Primary Actor | Brief Description |
 |---|---|---|
-| **Issue Book** | Reader / Librarian | Reader requests a loan; system checks eligibility (not blocked, copy available, loan limit not exceeded) and creates a Loan. |
-| **Return Book** | Reader / Librarian | Reader returns a copy; system records return date, calculates any overdue fine, restores the available-copy count, and notifies waiting reservers. |
-| **Reserve Book** | Reader | Reader places a reservation on a fully-borrowed title; system adds it to the priority queue (PREMIUM before STANDARD, oldest first). |
-| **Cancel Reservation** | Reader | Reader withdraws an active reservation before it expires or is fulfilled. |
-| **Pay Fine** | Reader | Reader settles an outstanding fine; once all fines are paid and overdue count is within threshold, the reader may be unblocked. |
-| **Block / Unblock Reader** | Librarian | Librarian (or automated evaluation) blocks a reader whose unpaid fines ≥ $10 or overdue-return count ≥ 3; unblocks when thresholds are cleared. |
+| **Create Project** | Coordinator | Creates a DRAFT project with a title and description; a team may be pre-assigned. |
+| **Assign Team** | Coordinator | Links an existing team to a non-archived project, enabling it to be moved to ACTIVE. |
+| **Submit Milestone** | Student | Records a milestone submission; when past the due date the penalty strategy calculates and stores penalty points for every team member. |
+| **Request to Join Team** | Student | Joins the team directly if space is available; otherwise creates a queue request prioritised by fewest active projects, then FIFO. |
+| **Apply Penalty** | Coordinator | Marks an overdue milestone as MISSED and creates penalty records for all team members via the configured penalty strategy. |
+| **Block Student** | Coordinator | Blocks a student whose unresolved penalty points or missed-deadline count exceed configured thresholds; blocked students cannot join teams. |

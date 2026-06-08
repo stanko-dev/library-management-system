@@ -25,3 +25,5 @@ htmlcov/
 *.iml
 junit.xml
 coverage.xml
+junit.xml
+coverage.xml

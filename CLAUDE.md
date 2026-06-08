@@ -1,17 +1,17 @@
-# Library Management System — Claude Code Context
+# Student Project Support System — Claude Code Context
 
 ## Project summary
 
-An **in-memory** Library Management System written in **Python 3.12**.
+An **in-memory** Student Project Support System written in **Python 3.12**.
 No databases, no network, no file I/O. All persistence lives in plain Python dicts/lists.
 
 ## Directory layout
 
 ```
 src/
-  models/    — pure data entities (Book, Member, Loan, Fine)
+  models/    — pure data entities (Student, Team, Project, Milestone, Submission, Penalty, QueueRequest)
   storage/   — ABC repository interfaces + InMemory implementations
-  services/  — business logic (BookService, LoanService, FineService, …)
+  services/  — business logic (ProjectService, MilestoneService, TeamService, MembershipService, …)
   utils/     — shared helpers, domain exceptions, EventBus, DI container
 tests/
   unit/        — isolated tests with mocks
@@ -43,8 +43,8 @@ storage   →  models
 
 | Pattern | Where |
 |---|---|
-| Strategy | `FineStrategy` ABC + concrete strategies; injected into `LoanService` |
-| Observer | `EventBus` in `utils/events.py`; `LoanService` publishes `BookAvailableEvent` on return |
+| Strategy | `PenaltyStrategy` ABC + concrete strategies; injected into `MilestoneService` |
+| Observer | `EventBus` in `services/events.py`; `MilestoneService` fires `MilestoneStatusChangedEvent`; `TeamService` fires `TeamSpotAvailableEvent` |
 
 ## Quality targets
 
@@ -83,9 +83,9 @@ pytest \
 ## Naming conventions
 
 - Test functions: `test_<method>_<scenario>_<expected_outcome>`
-- Repository interface: `BookRepository` (ABC in `storage/interfaces.py`)
-- In-memory impl: `InMemoryBookRepository` (in `storage/memory/book_repo.py`)
-- Domain exceptions: defined in `utils/exceptions.py`, e.g. `BookNotFoundError`
+- Repository interface: `StudentRepository` (ABC in `storage/interfaces.py`)
+- In-memory impl: `InMemoryStudentRepository` (in `storage/memory/student_repo.py`)
+- Domain exceptions: defined in `utils/exceptions.py`, e.g. `StudentNotFoundError`
 
 ## SOLID reminders
 

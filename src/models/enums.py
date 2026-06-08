@@ -1,21 +1,27 @@
 from enum import Enum
 
 
-class BookStatus(Enum):
-    AVAILABLE = "available"
-    UNAVAILABLE = "unavailable"
-    RESERVED = "reserved"
-    LOST = "lost"
-    MAINTENANCE = "maintenance"
+class StudentRole(Enum):
+    LEADER = "leader"
+    MEMBER = "member"
 
 
-class MembershipType(Enum):
-    PREMIUM = "premium"
-    STANDARD = "standard"
-
-
-class ReservationStatus(Enum):
+class ProjectStatus(Enum):
+    DRAFT = "draft"
     ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class MilestoneStatus(Enum):
+    PENDING = "pending"
+    SUBMITTED = "submitted"
+    LATE = "late"
+    MISSED = "missed"
+
+
+class QueueRequestStatus(Enum):
+    PENDING = "pending"
     FULFILLED = "fulfilled"
-    CANCELLED = "cancelled"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"

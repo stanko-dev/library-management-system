@@ -1,178 +1,145 @@
-"""TDD unit tests for MembershipService — all repos mocked."""
+"""TDD tests for MembershipService."""
 import pytest
-from decimal import Decimal
 
-from models.reader import Reader
-from models.enums import MembershipType
-from storage.interfaces import ReaderRepository, FineRepository
+from models.student import Student
+from models.penalty import Penalty
+from models.enums import StudentRole
 from services.membership_service import MembershipService
-from utils.exceptions import ReaderNotFoundError
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _reader(
-    is_blocked: bool = False,
-    overdue_count: int = 0,
-    membership: MembershipType = MembershipType.STANDARD,
-) -> Reader:
-    return Reader("r1", "Alice", membership,
-                  is_blocked=is_blocked, overdue_count=overdue_count)
+from storage.memory.student_repo import InMemoryStudentRepository
+from storage.memory.penalty_repo import InMemoryPenaltyRepository
+from utils.exceptions import StudentNotFoundError
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def reader_repo(mocker):
-    m = mocker.MagicMock(spec=ReaderRepository)
-    m.get_by_id.return_value = _reader()
-    return m
+def _make_student(sid="s1", missed=0, blocked=False):
+    return Student(sid, f"S{sid}", StudentRole.MEMBER,
+                   is_blocked=blocked, missed_deadlines_count=missed)
 
 
-@pytest.fixture
-def fine_repo(mocker):
-    m = mocker.MagicMock(spec=FineRepository)
-    m.total_unpaid_by_reader.return_value = Decimal("0")
-    return m
+def _make_penalty(pid, student_id, points, is_resolved=False):
+    return Penalty(pid, student_id, "m1", points, is_resolved=is_resolved)
 
 
-@pytest.fixture
-def svc(reader_repo, fine_repo) -> MembershipService:
+def _svc(s_repo=None, pen_repo=None, max_points=10, max_missed=3):
     return MembershipService(
-        reader_repo, fine_repo,
-        max_unpaid_amount=Decimal("10.00"),
-        max_overdue_count=3,
+        s_repo or InMemoryStudentRepository(),
+        pen_repo or InMemoryPenaltyRepository(),
+        max_unresolved_points=max_points,
+        max_missed_deadlines=max_missed,
     )
 
 
-# ── evaluate() ────────────────────────────────────────────────────────────────
-
-class TestEvaluate:
-    def test_reader_not_found_raises(self, svc, reader_repo):
-        reader_repo.get_by_id.return_value = None
-        with pytest.raises(ReaderNotFoundError):
-            svc.evaluate("r1")
-
-    def test_unpaid_above_threshold_blocks(self, svc, reader_repo, fine_repo):
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("15.00")
-        reader = _reader()
-        reader_repo.get_by_id.return_value = reader
-        assert svc.evaluate("r1") is True
-        assert reader.is_blocked is True
-
-    def test_unpaid_exactly_at_threshold_blocks(self, svc, reader_repo, fine_repo):
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("10.00")
-        reader = _reader()
-        reader_repo.get_by_id.return_value = reader
-        assert svc.evaluate("r1") is True
-
-    def test_unpaid_below_threshold_does_not_block(self, svc, reader_repo, fine_repo):
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("9.99")
-        reader = _reader()
-        reader_repo.get_by_id.return_value = reader
-        assert svc.evaluate("r1") is False
-        assert reader.is_blocked is False
-
-    def test_overdue_count_at_threshold_blocks(self, svc, reader_repo):
-        reader = _reader(overdue_count=3)
-        reader_repo.get_by_id.return_value = reader
-        assert svc.evaluate("r1") is True
-
-    def test_overdue_count_above_threshold_blocks(self, svc, reader_repo):
-        reader = _reader(overdue_count=5)
-        reader_repo.get_by_id.return_value = reader
-        assert svc.evaluate("r1") is True
-
-    def test_overdue_count_below_threshold_does_not_block(self, svc, reader_repo):
-        reader = _reader(overdue_count=2)
-        reader_repo.get_by_id.return_value = reader
-        assert svc.evaluate("r1") is False
-
-    def test_both_thresholds_exceeded_blocks(self, svc, reader_repo, fine_repo):
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("50.00")
-        reader = _reader(overdue_count=10)
-        reader_repo.get_by_id.return_value = reader
-        assert svc.evaluate("r1") is True
-
-    def test_unblocks_previously_blocked_reader_when_below_thresholds(
-        self, svc, reader_repo, fine_repo
-    ):
-        reader = _reader(is_blocked=True, overdue_count=0)
-        reader_repo.get_by_id.return_value = reader
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("0")
-        result = svc.evaluate("r1")
+class TestMembershipServiceEvaluate:
+    def test_no_violations_unblocks(self):
+        s_repo = InMemoryStudentRepository()
+        s_repo.add(_make_student(blocked=True))
+        pen_repo = InMemoryPenaltyRepository()
+        svc = _svc(s_repo, pen_repo)
+        result = svc.evaluate("s1")
         assert result is False
-        assert reader.is_blocked is False
+        assert s_repo.get_by_id("s1").is_blocked is False
 
-    def test_reader_repo_updated(self, svc, reader_repo, fine_repo):
-        reader_repo.get_by_id.return_value = _reader()
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("0")
-        svc.evaluate("r1")
-        reader_repo.update.assert_called_once()
+    def test_blocked_when_penalty_points_exceed_threshold(self):
+        s_repo = InMemoryStudentRepository()
+        pen_repo = InMemoryPenaltyRepository()
+        s_repo.add(_make_student())
+        pen_repo.add(_make_penalty("pen1", "s1", 5))
+        pen_repo.add(_make_penalty("pen2", "s1", 6, False))
+        svc = _svc(s_repo, pen_repo, max_points=10)
+        result = svc.evaluate("s1")
+        assert result is True
+        assert s_repo.get_by_id("s1").is_blocked is True
 
-    def test_returns_true_when_blocked(self, svc, reader_repo, fine_repo):
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("99.00")
-        reader_repo.get_by_id.return_value = _reader()
-        assert svc.evaluate("r1") is True
+    def test_blocked_at_exact_threshold(self):
+        s_repo = InMemoryStudentRepository()
+        pen_repo = InMemoryPenaltyRepository()
+        s_repo.add(_make_student())
+        pen_repo.add(_make_penalty("pen1", "s1", 10))
+        svc = _svc(s_repo, pen_repo, max_points=10)
+        result = svc.evaluate("s1")
+        assert result is True
 
-    def test_returns_false_when_not_blocked(self, svc, reader_repo, fine_repo):
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("0")
-        reader_repo.get_by_id.return_value = _reader(overdue_count=0)
-        assert svc.evaluate("r1") is False
+    def test_not_blocked_below_threshold(self):
+        s_repo = InMemoryStudentRepository()
+        pen_repo = InMemoryPenaltyRepository()
+        s_repo.add(_make_student())
+        pen_repo.add(_make_penalty("pen1", "s1", 9))
+        svc = _svc(s_repo, pen_repo, max_points=10)
+        result = svc.evaluate("s1")
+        assert result is False
 
-    def test_zero_unpaid_zero_overdue_does_not_block(self, svc, reader_repo, fine_repo):
-        reader = _reader(overdue_count=0)
-        reader_repo.get_by_id.return_value = reader
-        fine_repo.total_unpaid_by_reader.return_value = Decimal("0")
-        assert svc.evaluate("r1") is False
+    def test_blocked_when_missed_deadlines_exceed_threshold(self):
+        s_repo = InMemoryStudentRepository()
+        s_repo.add(_make_student(missed=3))
+        svc = _svc(s_repo, max_missed=3)
+        result = svc.evaluate("s1")
+        assert result is True
+
+    def test_resolved_penalties_not_counted(self):
+        s_repo = InMemoryStudentRepository()
+        pen_repo = InMemoryPenaltyRepository()
+        s_repo.add(_make_student())
+        pen_repo.add(_make_penalty("pen1", "s1", 50, is_resolved=True))
+        svc = _svc(s_repo, pen_repo, max_points=10)
+        result = svc.evaluate("s1")
+        assert result is False
+
+    def test_evaluate_unknown_student_raises(self):
+        svc = _svc()
+        with pytest.raises(StudentNotFoundError):
+            svc.evaluate("unknown")
+
+    def test_blocked_clears_when_penalties_resolved(self):
+        s_repo = InMemoryStudentRepository()
+        pen_repo = InMemoryPenaltyRepository()
+        s_repo.add(_make_student(blocked=True))
+        p = _make_penalty("pen1", "s1", 20)
+        pen_repo.add(p)
+        svc = _svc(s_repo, pen_repo, max_points=10)
+        svc.evaluate("s1")
+        assert s_repo.get_by_id("s1").is_blocked is True
+        p.is_resolved = True
+        pen_repo.update(p)
+        svc.evaluate("s1")
+        assert s_repo.get_by_id("s1").is_blocked is False
 
 
-# ── block() ───────────────────────────────────────────────────────────────────
+class TestMembershipServiceBlock:
+    def test_block_sets_is_blocked(self):
+        s_repo = InMemoryStudentRepository()
+        s_repo.add(_make_student())
+        svc = _svc(s_repo)
+        svc.block("s1")
+        assert s_repo.get_by_id("s1").is_blocked is True
 
-class TestBlock:
-    def test_reader_not_found_raises(self, svc, reader_repo):
-        reader_repo.get_by_id.return_value = None
-        with pytest.raises(ReaderNotFoundError):
-            svc.block("r1")
+    def test_block_already_blocked_is_idempotent(self):
+        s_repo = InMemoryStudentRepository()
+        s_repo.add(_make_student(blocked=True))
+        svc = _svc(s_repo)
+        svc.block("s1")
+        assert s_repo.get_by_id("s1").is_blocked is True
 
-    def test_sets_is_blocked_true(self, svc, reader_repo):
-        reader = _reader(is_blocked=False)
-        reader_repo.get_by_id.return_value = reader
-        svc.block("r1")
-        assert reader.is_blocked is True
-
-    def test_already_blocked_stays_blocked(self, svc, reader_repo):
-        reader = _reader(is_blocked=True)
-        reader_repo.get_by_id.return_value = reader
-        svc.block("r1")
-        assert reader.is_blocked is True
-
-    def test_reader_repo_updated(self, svc, reader_repo):
-        reader_repo.get_by_id.return_value = _reader()
-        svc.block("r1")
-        reader_repo.update.assert_called_once()
+    def test_block_unknown_student_raises(self):
+        svc = _svc()
+        with pytest.raises(StudentNotFoundError):
+            svc.block("unknown")
 
 
-# ── unblock() ─────────────────────────────────────────────────────────────────
+class TestMembershipServiceUnblock:
+    def test_unblock_clears_is_blocked(self):
+        s_repo = InMemoryStudentRepository()
+        s_repo.add(_make_student(blocked=True))
+        svc = _svc(s_repo)
+        svc.unblock("s1")
+        assert s_repo.get_by_id("s1").is_blocked is False
 
-class TestUnblock:
-    def test_reader_not_found_raises(self, svc, reader_repo):
-        reader_repo.get_by_id.return_value = None
-        with pytest.raises(ReaderNotFoundError):
-            svc.unblock("r1")
+    def test_unblock_already_unblocked_is_idempotent(self):
+        s_repo = InMemoryStudentRepository()
+        s_repo.add(_make_student(blocked=False))
+        svc = _svc(s_repo)
+        svc.unblock("s1")
+        assert s_repo.get_by_id("s1").is_blocked is False
 
-    def test_sets_is_blocked_false(self, svc, reader_repo):
-        reader = _reader(is_blocked=True)
-        reader_repo.get_by_id.return_value = reader
-        svc.unblock("r1")
-        assert reader.is_blocked is False
-
-    def test_already_unblocked_stays_unblocked(self, svc, reader_repo):
-        reader = _reader(is_blocked=False)
-        reader_repo.get_by_id.return_value = reader
-        svc.unblock("r1")
-        assert reader.is_blocked is False
-
-    def test_reader_repo_updated(self, svc, reader_repo):
-        reader_repo.get_by_id.return_value = _reader(is_blocked=True)
-        svc.unblock("r1")
-        reader_repo.update.assert_called_once()
+    def test_unblock_unknown_student_raises(self):
+        svc = _svc()
+        with pytest.raises(StudentNotFoundError):
+            svc.unblock("unknown")

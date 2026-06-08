@@ -1,60 +1,83 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from models.enums import MilestoneStatus
+
 
 @dataclass(frozen=True)
-class BookAvailableEvent:
-    """Fired when a book's available-copy count rises above zero."""
+class MilestoneStatusChangedEvent:
+    """Fired when a milestone's status changes (SUBMITTED, LATE, or MISSED)."""
 
-    book_id: str
+    milestone_id: str
+    new_status: MilestoneStatus
 
     def __post_init__(self) -> None:
-        if not self.book_id or not self.book_id.strip():
-            raise ValueError("book_id cannot be empty")
+        if not self.milestone_id or not self.milestone_id.strip():
+            raise ValueError("milestone_id cannot be empty")
 
 
-class BookAvailabilityObserver(ABC):
-    """Receives book-availability events."""
+@dataclass(frozen=True)
+class TeamSpotAvailableEvent:
+    """Fired when a member leaves a team, freeing a spot."""
 
-    @abstractmethod
-    def on_book_available(self, event: BookAvailableEvent) -> None: ...
+    team_id: str
+
+    def __post_init__(self) -> None:
+        if not self.team_id or not self.team_id.strip():
+            raise ValueError("team_id cannot be empty")
 
 
-class BookAvailabilitySubject(ABC):
-    """Manages a set of observers and dispatches availability events to them."""
-
-    @abstractmethod
-    def subscribe(self, observer: BookAvailabilityObserver) -> None: ...
-
-    @abstractmethod
-    def unsubscribe(self, observer: BookAvailabilityObserver) -> None: ...
+class DeadlineObserver(ABC):
+    """Receives deadline and team-spot events."""
 
     @abstractmethod
-    def notify(self, event: BookAvailableEvent) -> None: ...
+    def on_milestone_status_changed(self, event: MilestoneStatusChangedEvent) -> None: ...
+
+    @abstractmethod
+    def on_team_spot_available(self, event: TeamSpotAvailableEvent) -> None: ...
 
 
-class EventBus(BookAvailabilitySubject):
-    """In-memory publish/subscribe bus for book-availability events.
+class DeadlineSubject(ABC):
+    """Manages a set of observers and dispatches events to them."""
+
+    @abstractmethod
+    def subscribe(self, observer: DeadlineObserver) -> None: ...
+
+    @abstractmethod
+    def unsubscribe(self, observer: DeadlineObserver) -> None: ...
+
+    @abstractmethod
+    def notify_milestone_status(self, event: MilestoneStatusChangedEvent) -> None: ...
+
+    @abstractmethod
+    def notify_team_spot(self, event: TeamSpotAvailableEvent) -> None: ...
+
+
+class EventBus(DeadlineSubject):
+    """In-memory publish/subscribe bus.
 
     Guarantees:
     - Duplicate subscribe calls are idempotent.
-    - notify iterates a snapshot so observers may unsubscribe mid-dispatch
-      without causing RuntimeError.
-    - Unsubscribing an observer that is not registered raises ValueError.
+    - notify iterates a snapshot so observers may unsubscribe mid-dispatch.
+    - Unsubscribing an observer not registered raises ValueError.
     """
 
     def __init__(self) -> None:
-        self._observers: list[BookAvailabilityObserver] = []
+        self._observers: list[DeadlineObserver] = []
 
-    def subscribe(self, observer: BookAvailabilityObserver) -> None:
+    def subscribe(self, observer: DeadlineObserver) -> None:
         if observer not in self._observers:
             self._observers.append(observer)
 
-    def unsubscribe(self, observer: BookAvailabilityObserver) -> None:
+    def unsubscribe(self, observer: DeadlineObserver) -> None:
         if observer not in self._observers:
             raise ValueError(f"Observer is not subscribed: {observer!r}")
         self._observers.remove(observer)
 
-    def notify(self, event: BookAvailableEvent) -> None:
-        for observer in list(self._observers):   # snapshot prevents mutation bugs
-            observer.on_book_available(event)
+    def notify_milestone_status(self, event: MilestoneStatusChangedEvent) -> None:
+        for observer in list(self._observers):
+            observer.on_milestone_status_changed(event)
+
+    def notify_team_spot(self, event: TeamSpotAvailableEvent) -> None:
+        for observer in list(self._observers):
+            observer.on_team_spot_available(event)

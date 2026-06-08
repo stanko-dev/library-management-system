@@ -1,59 +1,110 @@
 import pytest
-from models.enums import BookStatus, MembershipType, ReservationStatus
+from models.enums import StudentRole, ProjectStatus, MilestoneStatus, QueueRequestStatus
 
 
-class TestBookStatus:
-    def test_available_value(self):
-        assert BookStatus.AVAILABLE.value == "available"
+class TestStudentRole:
+    def test_leader_value(self):
+        assert StudentRole.LEADER.value == "leader"
 
-    def test_unavailable_value(self):
-        assert BookStatus.UNAVAILABLE.value == "unavailable"
+    def test_member_value(self):
+        assert StudentRole.MEMBER.value == "member"
 
-    def test_reserved_value(self):
-        assert BookStatus.RESERVED.value == "reserved"
+    def test_all_roles(self):
+        assert set(StudentRole) == {StudentRole.LEADER, StudentRole.MEMBER}
 
-    def test_lost_value(self):
-        assert BookStatus.LOST.value == "lost"
+    def test_from_value_leader(self):
+        assert StudentRole("leader") == StudentRole.LEADER
 
-    def test_maintenance_value(self):
-        assert BookStatus.MAINTENANCE.value == "maintenance"
+    def test_from_value_member(self):
+        assert StudentRole("member") == StudentRole.MEMBER
 
-    def test_member_count(self):
-        assert len(BookStatus) == 5
-
-    def test_lookup_by_value(self):
-        assert BookStatus("available") is BookStatus.AVAILABLE
+    def test_invalid_value_raises(self):
+        with pytest.raises(ValueError):
+            StudentRole("admin")
 
 
-class TestMembershipType:
-    def test_premium_value(self):
-        assert MembershipType.PREMIUM.value == "premium"
+class TestProjectStatus:
+    def test_draft_value(self):
+        assert ProjectStatus.DRAFT.value == "draft"
 
-    def test_standard_value(self):
-        assert MembershipType.STANDARD.value == "standard"
-
-    def test_member_count(self):
-        assert len(MembershipType) == 2
-
-    def test_lookup_by_value(self):
-        assert MembershipType("premium") is MembershipType.PREMIUM
-
-
-class TestReservationStatus:
     def test_active_value(self):
-        assert ReservationStatus.ACTIVE.value == "active"
+        assert ProjectStatus.ACTIVE.value == "active"
+
+    def test_completed_value(self):
+        assert ProjectStatus.COMPLETED.value == "completed"
+
+    def test_archived_value(self):
+        assert ProjectStatus.ARCHIVED.value == "archived"
+
+    def test_all_statuses(self):
+        assert set(ProjectStatus) == {
+            ProjectStatus.DRAFT,
+            ProjectStatus.ACTIVE,
+            ProjectStatus.COMPLETED,
+            ProjectStatus.ARCHIVED,
+        }
+
+    def test_from_value(self):
+        assert ProjectStatus("active") == ProjectStatus.ACTIVE
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ValueError):
+            ProjectStatus("unknown")
+
+
+class TestMilestoneStatus:
+    def test_pending_value(self):
+        assert MilestoneStatus.PENDING.value == "pending"
+
+    def test_submitted_value(self):
+        assert MilestoneStatus.SUBMITTED.value == "submitted"
+
+    def test_late_value(self):
+        assert MilestoneStatus.LATE.value == "late"
+
+    def test_missed_value(self):
+        assert MilestoneStatus.MISSED.value == "missed"
+
+    def test_all_statuses(self):
+        assert set(MilestoneStatus) == {
+            MilestoneStatus.PENDING,
+            MilestoneStatus.SUBMITTED,
+            MilestoneStatus.LATE,
+            MilestoneStatus.MISSED,
+        }
+
+    def test_from_value(self):
+        assert MilestoneStatus("late") == MilestoneStatus.LATE
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ValueError):
+            MilestoneStatus("done")
+
+
+class TestQueueRequestStatus:
+    def test_pending_value(self):
+        assert QueueRequestStatus.PENDING.value == "pending"
 
     def test_fulfilled_value(self):
-        assert ReservationStatus.FULFILLED.value == "fulfilled"
-
-    def test_cancelled_value(self):
-        assert ReservationStatus.CANCELLED.value == "cancelled"
+        assert QueueRequestStatus.FULFILLED.value == "fulfilled"
 
     def test_expired_value(self):
-        assert ReservationStatus.EXPIRED.value == "expired"
+        assert QueueRequestStatus.EXPIRED.value == "expired"
 
-    def test_member_count(self):
-        assert len(ReservationStatus) == 4
+    def test_cancelled_value(self):
+        assert QueueRequestStatus.CANCELLED.value == "cancelled"
 
-    def test_lookup_by_value(self):
-        assert ReservationStatus("cancelled") is ReservationStatus.CANCELLED
+    def test_all_statuses(self):
+        assert set(QueueRequestStatus) == {
+            QueueRequestStatus.PENDING,
+            QueueRequestStatus.FULFILLED,
+            QueueRequestStatus.EXPIRED,
+            QueueRequestStatus.CANCELLED,
+        }
+
+    def test_from_value_cancelled(self):
+        assert QueueRequestStatus("cancelled") == QueueRequestStatus.CANCELLED
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ValueError):
+            QueueRequestStatus("unknown")

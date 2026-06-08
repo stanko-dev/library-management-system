@@ -1,74 +1,66 @@
-from decimal import Decimal
-
-from storage.interfaces import ReaderRepository, FineRepository
-from utils.exceptions import ReaderNotFoundError
+from storage.interfaces import StudentRepository, PenaltyRepository
+from utils.exceptions import StudentNotFoundError
 
 
 class MembershipService:
-    """Evaluates and enforces reader blocking rules based on unpaid fines and
-    overdue-return counts.
-
-    Thresholds are injected, keeping the policy out of the code and making
-    this class trivially testable without touching storage.
-    """
+    """Evaluates and enforces student blocking based on penalty points and missed deadlines."""
 
     def __init__(
         self,
-        reader_repo: ReaderRepository,
-        fine_repo: FineRepository,
-        max_unpaid_amount: Decimal,
-        max_overdue_count: int,
+        student_repo: StudentRepository,
+        penalty_repo: PenaltyRepository,
+        max_unresolved_points: int,
+        max_missed_deadlines: int,
     ) -> None:
-        self._reader_repo = reader_repo
-        self._fine_repo = fine_repo
-        self._max_unpaid_amount = max_unpaid_amount
-        self._max_overdue_count = max_overdue_count
+        self._student_repo = student_repo
+        self._penalty_repo = penalty_repo
+        self._max_unresolved_points = max_unresolved_points
+        self._max_missed_deadlines = max_missed_deadlines
 
-    def evaluate(self, reader_id: str) -> bool:
-        """Recompute whether reader_id should be blocked and apply the change.
+    def evaluate(self, student_id: str) -> bool:
+        """Recompute blocking status and apply it.
 
-        Blocks when: total unpaid fines >= max_unpaid_amount
-                  OR overdue_count >= max_overdue_count.
-        Unblocks when neither condition holds (handles readers who cleared debt).
+        Blocks when: total unresolved points >= max_unresolved_points
+                  OR missed_deadlines_count >= max_missed_deadlines.
 
-        Returns True if the reader ends up blocked, False otherwise.
+        Returns True if the student ends up blocked, False otherwise.
 
         Raises:
-            ReaderNotFoundError: reader does not exist.
+            StudentNotFoundError: student does not exist.
         """
-        reader = self._reader_repo.get_by_id(reader_id)
-        if reader is None:
-            raise ReaderNotFoundError(f"Reader not found: {reader_id!r}")
+        student = self._student_repo.get_by_id(student_id)
+        if student is None:
+            raise StudentNotFoundError(f"Student not found: {student_id!r}")
 
-        unpaid = self._fine_repo.total_unpaid_by_reader(reader_id)
+        total_points = self._penalty_repo.total_unresolved_by_student(student_id)
         should_block = (
-            unpaid >= self._max_unpaid_amount
-            or reader.overdue_count >= self._max_overdue_count
+            total_points >= self._max_unresolved_points
+            or student.missed_deadlines_count >= self._max_missed_deadlines
         )
-        reader.is_blocked = should_block
-        self._reader_repo.update(reader)
+        student.is_blocked = should_block
+        self._student_repo.update(student)
         return should_block
 
-    def block(self, reader_id: str) -> None:
-        """Force-block a reader regardless of current thresholds.
+    def block(self, student_id: str) -> None:
+        """Force-block a student.
 
         Raises:
-            ReaderNotFoundError: reader does not exist.
+            StudentNotFoundError: student does not exist.
         """
-        reader = self._reader_repo.get_by_id(reader_id)
-        if reader is None:
-            raise ReaderNotFoundError(f"Reader not found: {reader_id!r}")
-        reader.is_blocked = True
-        self._reader_repo.update(reader)
+        student = self._student_repo.get_by_id(student_id)
+        if student is None:
+            raise StudentNotFoundError(f"Student not found: {student_id!r}")
+        student.is_blocked = True
+        self._student_repo.update(student)
 
-    def unblock(self, reader_id: str) -> None:
-        """Force-unblock a reader regardless of current thresholds.
+    def unblock(self, student_id: str) -> None:
+        """Force-unblock a student.
 
         Raises:
-            ReaderNotFoundError: reader does not exist.
+            StudentNotFoundError: student does not exist.
         """
-        reader = self._reader_repo.get_by_id(reader_id)
-        if reader is None:
-            raise ReaderNotFoundError(f"Reader not found: {reader_id!r}")
-        reader.is_blocked = False
-        self._reader_repo.update(reader)
+        student = self._student_repo.get_by_id(student_id)
+        if student is None:
+            raise StudentNotFoundError(f"Student not found: {student_id!r}")
+        student.is_blocked = False
+        self._student_repo.update(student)

@@ -1,106 +1,129 @@
 # Domain Model
 
-Core entities, value objects, and their relationships in the Library Management System.
+Core entities, value objects, and their relationships in the Student Project Support System.
 
 ```mermaid
 classDiagram
     direction TB
 
     %% ── Enumerations ─────────────────────────────────────────────────
-    class MembershipType {
+    class StudentRole {
         <<enumeration>>
-        PREMIUM
-        STANDARD
+        LEADER
+        MEMBER
     }
 
-    class BookStatus {
+    class ProjectStatus {
         <<enumeration>>
-        AVAILABLE
-        UNAVAILABLE
-        RESERVED
-        LOST
-        MAINTENANCE
-    }
-
-    class ReservationStatus {
-        <<enumeration>>
+        DRAFT
         ACTIVE
+        COMPLETED
+        ARCHIVED
+    }
+
+    class MilestoneStatus {
+        <<enumeration>>
+        PENDING
+        SUBMITTED
+        LATE
+        MISSED
+    }
+
+    class QueueRequestStatus {
+        <<enumeration>>
+        PENDING
         FULFILLED
-        CANCELLED
         EXPIRED
+        CANCELLED
     }
 
     %% ── Entities ─────────────────────────────────────────────────────
-    class Reader {
+    class Student {
         +id : str
         +name : str
-        +membership : MembershipType
+        +role : StudentRole
         +is_blocked : bool
-        +active_loans : int
-        +overdue_count : int
+        +active_projects_count : int
+        +missed_deadlines_count : int
     }
 
-    class Book {
+    class Team {
+        +id : str
+        +name : str
+        +capacity : int
+        +member_ids : list
+        +is_full() bool
+        +available_spots() int
+    }
+
+    class Project {
         +id : str
         +title : str
-        +author : str
-        +isbn : str
-        +total_copies : int
-        +available_copies : int
-        +status : BookStatus
+        +description : str
+        +status : ProjectStatus
+        +team_id : str
+        +created_at : datetime
     }
 
-    class Loan {
+    class Milestone {
         +id : str
-        +book_id : str
-        +reader_id : str
-        +issued_at : datetime
+        +project_id : str
+        +title : str
         +due_date : datetime
-        +returned_at : datetime | None
-        +is_active() bool
-        +is_overdue(as_of) bool
+        +status : MilestoneStatus
+        +submitted_at : datetime
     }
 
-    class Reservation {
+    class Submission {
         +id : str
-        +book_id : str
-        +reader_id : str
+        +milestone_id : str
+        +team_id : str
+        +submitted_at : datetime
+    }
+
+    class Penalty {
+        +id : str
+        +student_id : str
+        +milestone_id : str
+        +points : int
+        +is_resolved : bool
+    }
+
+    class QueueRequest {
+        +id : str
+        +student_id : str
+        +team_id : str
         +created_at : datetime
         +expires_at : datetime
-        +status : ReservationStatus
-    }
-
-    class Fine {
-        +id : str
-        +reader_id : str
-        +loan_id : str
-        +amount : Decimal
-        +is_paid : bool
+        +status : QueueRequestStatus
     }
 
     %% ── Entity → Enumeration ────────────────────────────────────────
-    Reader --> MembershipType : membership
-    Book   --> BookStatus     : status
-    Reservation --> ReservationStatus : status
+    Student      --> StudentRole         : role
+    Project      --> ProjectStatus       : status
+    Milestone    --> MilestoneStatus     : status
+    QueueRequest --> QueueRequestStatus  : status
 
     %% ── Entity relationships ─────────────────────────────────────────
-    Reader "1" --> "0..*" Loan        : takes
-    Reader "1" --> "0..*" Reservation : places
-    Reader "1" --> "0..*" Fine        : owes
-
-    Book "1" --> "0..*" Loan        : subject of
-    Book "1" --> "0..*" Reservation : subject of
-
-    Loan "1" --> "0..1" Fine : may generate
+    Team "1" --> "0..*" Student          : has members
+    Project "0..*" --> "0..1" Team       : assigned to
+    Milestone "0..*" --> "1" Project     : belongs to
+    Submission "0..1" --> "1" Milestone  : records
+    Submission "0..1" --> "1" Team       : submitted by
+    Penalty "0..*" --> "1" Student       : issued to
+    Penalty "0..*" --> "1" Milestone     : triggered by
+    QueueRequest "0..*" --> "1" Student  : placed by
+    QueueRequest "0..*" --> "1" Team     : waiting for
 ```
 
 ## Relationship Notes
 
 | Relationship | Multiplicity | Description |
 |---|---|---|
-| Reader → Loan | 1 to 0..* | A reader may have multiple active or historical loans; limited by membership tier (STANDARD ≤ 3, PREMIUM ≤ 5 active at once). |
-| Reader → Reservation | 1 to 0..* | A reader may hold at most one active reservation per title at a time. |
-| Reader → Fine | 1 to 0..* | Fines accumulate across all overdue loans; total unpaid ≥ $10 triggers a block. |
-| Book → Loan | 1 to 0..* | Multiple copies may be on loan simultaneously (`available_copies` tracks what remains). |
-| Book → Reservation | 1 to 0..* | Multiple readers may queue for the same book; served in PREMIUM-first, oldest-first order. |
-| Loan → Fine | 1 to 0..1 | A fine is created only when `return_date > due_date`; on-time returns generate no fine. |
+| Team → Student | 1 to 0..* | A team holds a list of member IDs; membership is capped at the team's `capacity`. |
+| Project → Team | 0..* to 0..1 | A project may have no team (DRAFT) or exactly one team once assigned. |
+| Milestone → Project | 0..* to 1 | Each milestone belongs to exactly one project; a project may have many milestones. |
+| Submission → Milestone | 0..1 to 1 | At most one submission per milestone; a second submit attempt raises `AlreadySubmittedError`. |
+| Penalty → Student | 0..* to 1 | Multiple penalties may accumulate on one student across different milestones. |
+| Penalty → Milestone | 0..* to 1 | Each late or missed milestone generates one penalty per team member. |
+| QueueRequest → Team | 0..* to 1 | Multiple students may queue for the same full team; served by priority, not pure FIFO. |

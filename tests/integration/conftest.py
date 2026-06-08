@@ -1,28 +1,29 @@
 """Shared fixtures for all integration tests.
 
-Every fixture wires REAL in-memory repositories and services.
-No mocks anywhere in this directory.
+Every fixture wires REAL in-memory repositories and services. No mocks.
 """
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
 
 import pytest
 
-from models.book import Book
-from models.reader import Reader
-from models.enums import MembershipType
-from storage.memory.book_repo import InMemoryBookRepository
-from storage.memory.reader_repo import InMemoryReaderRepository
-from storage.memory.loan_repo import InMemoryLoanRepository
-from storage.memory.reservation_repo import InMemoryReservationRepository
-from storage.memory.fine_repo import InMemoryFineRepository
+from models.student import Student
+from models.team import Team
+from models.project import Project
+from models.enums import StudentRole, ProjectStatus
+from storage.memory.student_repo import InMemoryStudentRepository
+from storage.memory.team_repo import InMemoryTeamRepository
+from storage.memory.project_repo import InMemoryProjectRepository
+from storage.memory.milestone_repo import InMemoryMilestoneRepository
+from storage.memory.submission_repo import InMemorySubmissionRepository
+from storage.memory.penalty_repo import InMemoryPenaltyRepository
+from storage.memory.queue_request_repo import InMemoryQueueRequestRepository
 from services.events import EventBus
-from services.fine_strategies import FlatFineStrategy
-from services.notification import ReaderNotifier
-from services.loan_service import LoanService
-from services.return_service import ReturnService
-from services.reservation_service import ReservationService
+from services.penalty_strategies import FlatPenaltyStrategy
+from services.notification import StudentNotifier
+from services.project_service import ProjectService
+from services.milestone_service import MilestoneService
+from services.team_service import TeamService
 from services.membership_service import MembershipService
 
 
@@ -44,87 +45,77 @@ class Clock:
 
 @dataclass
 class Repos:
-    books: InMemoryBookRepository
-    readers: InMemoryReaderRepository
-    loans: InMemoryLoanRepository
-    reservations: InMemoryReservationRepository
-    fines: InMemoryFineRepository
+    students: InMemoryStudentRepository
+    teams: InMemoryTeamRepository
+    projects: InMemoryProjectRepository
+    milestones: InMemoryMilestoneRepository
+    submissions: InMemorySubmissionRepository
+    penalties: InMemoryPenaltyRepository
+    queue_requests: InMemoryQueueRequestRepository
 
 
 @dataclass
 class Svc:
-    loan: LoanService
-    returns: ReturnService
-    reservation: ReservationService
+    project: ProjectService
+    milestone: MilestoneService
+    team: TeamService
     membership: MembershipService
-    notifier: ReaderNotifier
+    notifier: StudentNotifier
     bus: EventBus
 
 
-# ── Fixtures (all function-scoped → fresh state per test) ─────────────────────
-
 @pytest.fixture
 def clock() -> Clock:
-    return Clock(datetime(2025, 1, 15, 9, 0, 0))
+    return Clock(datetime(2025, 10, 1, 9, 0, 0))
 
 
 @pytest.fixture
 def repos() -> Repos:
     return Repos(
-        books=InMemoryBookRepository(),
-        readers=InMemoryReaderRepository(),
-        loans=InMemoryLoanRepository(),
-        reservations=InMemoryReservationRepository(),
-        fines=InMemoryFineRepository(),
+        students=InMemoryStudentRepository(),
+        teams=InMemoryTeamRepository(),
+        projects=InMemoryProjectRepository(),
+        milestones=InMemoryMilestoneRepository(),
+        submissions=InMemorySubmissionRepository(),
+        penalties=InMemoryPenaltyRepository(),
+        queue_requests=InMemoryQueueRequestRepository(),
     )
 
 
 @pytest.fixture
 def svc(repos: Repos, clock: Clock) -> Svc:
-    """Wire all real services together; subscribe ReaderNotifier to the EventBus."""
-    strategy = FlatFineStrategy(Decimal("1.00"))   # $1 per overdue calendar day
-    bus      = EventBus()
-    notifier = ReaderNotifier(repos.reservations, repos.readers)
+    strategy = FlatPenaltyStrategy(2)
+    bus = EventBus()
+    notifier = StudentNotifier(
+        repos.milestones, repos.projects, repos.teams,
+        repos.queue_requests, repos.students,
+    )
     bus.subscribe(notifier)
 
     return Svc(
-        loan=LoanService(
-            repos.loans, repos.books, repos.readers, clock=clock,
-        ),
-        returns=ReturnService(
-            repos.loans, repos.books, repos.readers, repos.fines,
+        project=ProjectService(repos.projects, repos.teams),
+        milestone=MilestoneService(
+            repos.milestones, repos.submissions, repos.penalties,
+            repos.projects, repos.teams, repos.students,
             strategy, bus, clock=clock,
         ),
-        reservation=ReservationService(
-            repos.reservations, repos.books, repos.readers,
-            expiry_days=3, clock=clock,
+        team=TeamService(
+            repos.teams, repos.students, repos.queue_requests,
+            bus, expiry_days=7, clock=clock,
         ),
         membership=MembershipService(
-            repos.readers, repos.fines,
-            max_unpaid_amount=Decimal("10.00"),
-            max_overdue_count=3,
+            repos.students, repos.penalties,
+            max_unresolved_points=10,
+            max_missed_deadlines=3,
         ),
         notifier=notifier,
         bus=bus,
     )
 
 
-# ── Shared book / reader helpers used across test modules ─────────────────────
-
-ISBNS = [
-    "9780132350884", "047096890X",    "0132350882",
-    "9780201633610", "9780596007126", "9780471958697",
-    "9781492056355", "9780134685991", "9780735619678",
-    "9780201485677",
-]
+def make_student(sid: str = "s1", role: StudentRole = StudentRole.MEMBER) -> Student:
+    return Student(sid, f"Student {sid}", role)
 
 
-def make_book(book_id: str = "b0", isbn_idx: int = 0, copies: int = 2) -> Book:
-    return Book(book_id, f"Book {book_id}", "Author", ISBNS[isbn_idx], copies, copies)
-
-
-def make_reader(
-    reader_id: str = "r0",
-    membership: MembershipType = MembershipType.STANDARD,
-) -> Reader:
-    return Reader(reader_id, f"Reader {reader_id}", membership)
+def make_team(tid: str = "t1", capacity: int = 4) -> Team:
+    return Team(tid, f"Team {tid}", capacity)

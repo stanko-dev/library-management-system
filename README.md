@@ -1,4 +1,4 @@
-# Library Management System
+# Student Project Support System
 
 <!-- ────────────────────────────────────────────────────────────────────────────
   BADGE INSTRUCTIONS
@@ -26,16 +26,17 @@
 
 ## Overview
 
-An **in-memory Library Management System** written in Python 3.12. The system manages
-book loans, reservations, reader accounts, and overdue fines without an external
-database — all state lives in plain Python `dict`s for the lifetime of the process.
+An **in-memory Student Project Support System** written in Python 3.12. The system
+manages student projects, team membership, milestone submissions, and penalty enforcement
+without an external database — all state lives in plain Python `dict`s for the lifetime
+of the process.
 
 **Quality targets met:**
 
 | Metric | Target | Achieved |
 |---|---|---|
 | Branch coverage | ≥ 85% | 100% |
-| Tests | ≥ 200 | 703 |
+| Tests | ≥ 200 | 541 |
 | Bugs / vulnerabilities | 0 | 0 |
 | Maintainability | A or B | A |
 
@@ -47,31 +48,35 @@ The codebase is split into four layers. Dependencies flow strictly downward; no 
 imports from a layer above it.
 
 ```
-┌───────────────────────────────────────────────────┐
-│                   services/                        │  Business logic
-│  LoanService · ReturnService · ReservationService  │  (all deps injected)
-│  MembershipService                                 │
-└──────────────────┬────────────────────────────────┘
-                   │ depends on ABCs only
-┌──────────────────▼────────────────────────────────┐
-│               storage/interfaces.py                │  Repository ABCs
-│  BookRepository · ReaderRepository · LoanRepository│  (abc.ABC)
-│  ReservationRepository · FineRepository            │
-└──────────────────▲────────────────────────────────┘
-                   │ implemented by
-┌──────────────────┴────────────────────────────────┐
-│             storage/memory/                        │  In-memory impls
-│  InMemoryBookRepository · InMemoryReaderRepository │  (dict-backed)
-│  InMemoryLoanRepository · …                        │
-└───────────────────────────────────────────────────┘
-┌───────────────────────────────────────────────────┐
-│                   models/                          │  Pure data
-│  Book · Reader · Loan · Reservation · Fine         │  (dataclasses, no I/O)
-└───────────────────────────────────────────────────┘
-┌───────────────────────────────────────────────────┐
-│                   utils/                           │  Cross-cutting
-│  exceptions.py                                     │  (no service imports)
-└───────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                       services/                             │  Business logic
+│  ProjectService · MilestoneService · TeamService            │  (all deps injected)
+│  MembershipService                                          │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ depends on ABCs only
+┌──────────────────────▼──────────────────────────────────────┐
+│               storage/interfaces.py                          │  Repository ABCs
+│  StudentRepository · TeamRepository · ProjectRepository      │  (abc.ABC)
+│  MilestoneRepository · SubmissionRepository                  │
+│  PenaltyRepository · QueueRequestRepository                  │
+└──────────────────────▲──────────────────────────────────────┘
+                       │ implemented by
+┌──────────────────────┴──────────────────────────────────────┐
+│             storage/memory/                                  │  In-memory impls
+│  InMemoryStudentRepository · InMemoryTeamRepository          │  (dict-backed)
+│  InMemoryProjectRepository · InMemoryMilestoneRepository     │
+│  InMemorySubmissionRepository · InMemoryPenaltyRepository    │
+│  InMemoryQueueRequestRepository                              │
+└────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                     models/                                 │  Pure data
+│  Student · Team · Project · Milestone                       │  (dataclasses, no I/O)
+│  Submission · Penalty · QueueRequest                        │
+└────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                     utils/                                  │  Cross-cutting
+│  exceptions.py                                              │  (no service imports)
+└────────────────────────────────────────────────────────────┘
 ```
 
 **Key principles applied:**
@@ -79,90 +84,96 @@ imports from a layer above it.
 - **Dependency Inversion** — every service receives repository ABCs via constructor
   injection; it never calls `InMemory*` constructors directly.
 - **Single Responsibility** — each service owns exactly one domain workflow.
-- **Open/Closed** — new fine policies and new event observers are added by implementing
-  an interface, not by editing existing classes.
+- **Open/Closed** — new penalty strategies and new event observers are added by
+  implementing an interface, not by editing existing classes.
 - **Liskov Substitution** — every `InMemory*Repository` is a drop-in substitute for
   its ABC; the test suite exercises both with and without mocks.
-- **Interface Segregation** — five focused repository ABCs rather than one monolithic
+- **Interface Segregation** — seven focused repository ABCs rather than one monolithic
   data-access interface.
 
 ---
 
 ## Design Patterns
 
-### Strategy — Fine Calculation
+### Strategy — Penalty Calculation
 
-**Where:** `src/services/fine_strategies.py`
+**Where:** `src/services/penalty_strategies.py`
 
-`ReturnService` receives a `FineStrategy` instance via its constructor. It calls
-`strategy.calculate(due_date, return_date)` without knowing which algorithm is active.
+`MilestoneService` receives a `PenaltyStrategy` instance via its constructor. It calls
+`strategy.calculate(due_date, submitted_date)` without knowing which algorithm is active.
 Four concrete strategies ship out of the box:
 
 | Strategy | Algorithm |
 |---|---|
-| `FlatFineStrategy` | `overdue_days × daily_rate` |
-| `ProgressiveFineStrategy` | Day *n* costs `base_rate + (n−1) × increment`; total capped at `cap` |
-| `WeekendExemptStrategy` | Weekdays only (Mon–Fri) in the overdue window × `daily_rate` |
-| `CappedFineStrategy` | Decorator — wraps any inner strategy and clamps its result to a ceiling |
+| `FlatPenaltyStrategy` | `overdue_days × points_per_day` |
+| `ProgressivePenaltyStrategy` | Day *n* costs `base_points + (n−1) × increment`; total capped at `cap` |
+| `WeekendExemptPenaltyStrategy` | Weekdays only (Mon–Fri) in the overdue window × `points_per_day` |
+| `CappedPenaltyStrategy` | Decorator — wraps any inner strategy and clamps its result to a ceiling |
 
-**Rationale:** Switching the fine policy for a deployment requires only passing a
+**Rationale:** Switching the penalty policy for a course requires only passing a
 different object at the composition root; no service code changes and no conditional
 chains (`if policy == "flat": …`).
 
-### Observer — Book-Availability Notifications
+### Observer — Milestone Status and Team-Spot Notifications
 
 **Where:** `src/services/events.py` (bus), `src/services/notification.py` (observer)
 
-`ReturnService` holds a reference to `BookAvailabilitySubject` (an ABC). After
-recording a return it calls `event_bus.notify(BookAvailableEvent(book_id))`. Any
-number of observers subscribed to the bus receive the event.
+`MilestoneService` and `TeamService` both hold a reference to `DeadlineSubject` (an ABC).
 
-`ReaderNotifier` is the concrete observer: it looks up the highest-priority active
-reservation for the returned book and records a `Notification` for that reader.
+- After recording a submission or marking a milestone missed, `MilestoneService` calls
+  `event_bus.notify_milestone_status(MilestoneStatusChangedEvent(...))`.
+- After a member leaves a team, `TeamService` calls
+  `event_bus.notify_team_spot(TeamSpotAvailableEvent(...))`.
 
-**Rationale:** `ReturnService` has no knowledge of notifications, reservation queues,
-or email sending. Adding a new reaction to a book return (e.g., updating a search
-index) means implementing `BookAvailabilityObserver` and subscribing it — zero changes
-to existing code.
+`StudentNotifier` is the concrete observer:
+- On a `MilestoneStatusChangedEvent`: looks up all team members of the affected project
+  and records a `Notification` for each.
+- On a `TeamSpotAvailableEvent`: finds the highest-priority pending queue request for the
+  team (fewest active projects first, then FIFO) and records a `Notification` for that
+  student.
+
+**Rationale:** `MilestoneService` and `TeamService` have no knowledge of notifications,
+queue lookups, or messaging. Adding a new reaction to a milestone change (e.g., sending
+an email) means implementing `DeadlineObserver` and subscribing it — zero changes to
+existing code.
 
 ---
 
 ## Business Rules
 
-### Loan Limits
+### Student Blocking
 
-| Membership tier | Maximum simultaneous active loans |
-|---|---|
-| Standard | 3 |
-| Premium | 5 |
+A student is **blocked** (cannot join teams) when either condition holds (thresholds are
+configurable at the composition root; integration tests use 10 points and 3 deadlines):
 
-Default loan period: **14 days**.
+- Total **unresolved penalty points** ≥ `max_unresolved_points`, **or**
+- **Missed deadlines count** ≥ `max_missed_deadlines`
 
-### Fine Calculation
-
-A fine is created only when `return_date > due_date`. The exact amount depends on the
-configured `FineStrategy` (see Design Patterns above). A fine is stored as an unpaid
-record on the reader's account.
-
-### Reservation Queue Priority
-
-When a copy becomes available the reservation queue is sorted by:
-
-1. **Membership tier** — Premium readers (rank 0) are served before Standard readers (rank 1).
-2. **Arrival time** — Within the same tier, the reader who reserved earliest wins (FIFO).
-
-Reservations expire automatically **3 days** after they are created.
-
-### Reader Blocking
-
-A reader is **blocked** (cannot borrow or reserve) when either condition holds:
-
-- Total unpaid fines ≥ **$10.00**, **or**
-- Overdue-return count ≥ **3**
-
-`MembershipService.evaluate()` recomputes the blocking status atomically. A librarian
-can also force-block or force-unblock a reader regardless of thresholds via
+`MembershipService.evaluate()` recomputes the blocking status atomically. A coordinator
+can also force-block or force-unblock a student regardless of thresholds via
 `MembershipService.block()` / `MembershipService.unblock()`.
+
+### Team-Join Priority Queue
+
+When a team is full, join requests are queued. When a spot opens up, the student with
+the **lowest `active_projects_count`** is notified first. Within the same count, the
+student who queued **earliest** wins (FIFO). Queue requests expire automatically after
+**7 days** (configurable via `TeamService(expiry_days=...)`).
+
+### Project Status Transitions
+
+| From | Allowed transitions |
+|---|---|
+| `DRAFT` | `ACTIVE` (requires a team to be assigned first), `ARCHIVED` |
+| `ACTIVE` | `COMPLETED`, `ARCHIVED` |
+| `COMPLETED` | `ARCHIVED` |
+| `ARCHIVED` | *(terminal — no further transitions)* |
+
+### Late Submission Penalties
+
+One `Penalty` record is created **per team member** when a milestone is submitted after
+its due date or explicitly marked as MISSED. The point value is determined by the
+configured `PenaltyStrategy`. On-time submissions produce no penalty records.
 
 ---
 
@@ -192,7 +203,7 @@ The test suite is split into two directories:
 
 | Directory | Purpose |
 |---|---|
-| `tests/unit/` | Each class tested in isolation; all collaborators are mocked. |
+| `tests/unit/` | Each class tested in isolation; all collaborators are mocked via `pytest-mock`. |
 | `tests/integration/` | Real in-memory repositories wired together; end-to-end workflows. |
 
 ---
@@ -225,7 +236,7 @@ Open any `.md` file directly on GitHub to see the rendered diagram.
 
 | File | Diagram type | What it shows |
 |---|---|---|
-| `use-case.md` | Use Case | Actors (Reader, Librarian) and the 6 use cases with «include» relationships |
+| `use-case.md` | Use Case | Actors (Student, Coordinator) and the 6 use cases with «include» relationships |
 | `domain-model.md` | Class (domain model) | Entities, enumerations, and their multiplicities |
 | `class-diagram.md` | Class (full) | All layers: models, repository ABCs, in-memory impls, Strategy hierarchy, Observer hierarchy, services, and dependency arrows |
 
