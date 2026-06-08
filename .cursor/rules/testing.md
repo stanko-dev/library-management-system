@@ -1,4 +1,4 @@
-# Testing Guide — Library Management System
+# Testing Guide — Student Project Support System
 
 ## Toolchain
 
@@ -27,16 +27,21 @@ Never commit production code that does not have a corresponding test written fir
 ```
 tests/
   unit/
-    models/          test_book.py, test_member.py, test_loan.py, test_fine.py
-    storage/         test_book_repo.py, test_member_repo.py, ...
-    services/        test_book_service.py, test_loan_service.py, ...
-    utils/           test_date_utils.py, test_validators.py
+    models/      test_student.py, test_team.py, test_project.py,
+                 test_milestone.py, test_submission.py, test_penalty.py,
+                 test_queue_request.py, test_enums.py
+    storage/     test_student_repo.py, test_team_repo.py, test_project_repo.py,
+                 test_milestone_repo.py, test_submission_repo.py,
+                 test_penalty_repo.py, test_queue_request_repo.py
+    services/    test_penalty_strategies.py, test_events_observer.py,
+                 test_notification.py, test_project_service.py,
+                 test_milestone_service.py, test_team_service.py,
+                 test_membership_service.py
   integration/
-    test_borrow_flow.py
-    test_return_flow.py
-    test_fine_flow.py
-    test_search_flow.py
-    test_notification_flow.py
+    conftest.py                        (shared fixtures, Clock helper)
+    test_project_milestone_workflow.py
+    test_team_queue_workflow.py
+    test_membership_blocking_workflow.py
 ```
 
 Target: **200+ tests** total across both layers.
@@ -48,28 +53,41 @@ Target: **200+ tests** total across both layers.
 Unit tests verify a single class in isolation. All collaborators are mocked.
 
 ```python
-# tests/unit/services/test_loan_service.py
+# tests/unit/services/test_milestone_service.py
 from unittest.mock import MagicMock
-from services.loan_service import LoanService
+from datetime import datetime, timedelta
+from services.milestone_service import MilestoneService
+from services.penalty_strategies import FlatPenaltyStrategy
 
-def test_borrow_decrements_available_copies():
-    loan_repo    = MagicMock()
-    book_repo    = MagicMock()
-    member_repo  = MagicMock()
-    fine_strategy = MagicMock()
-    event_bus    = MagicMock()
+def test_late_submit_creates_penalty_per_team_member():
+    milestone_repo  = MagicMock()
+    submission_repo = MagicMock()
+    penalty_repo    = MagicMock()
+    project_repo    = MagicMock()
+    team_repo       = MagicMock()
+    student_repo    = MagicMock()
+    bus             = MagicMock()
 
-    book = Book(isbn="123", title="X", author="Y", year=2020,
-                total_copies=2, available_copies=2)
-    book_repo.get_by_isbn.return_value = book
-    member_repo.get_by_id.return_value = Member(member_id="m1", name="A",
-                                                 email="a@b.com", active=True)
+    due = datetime(2025, 10, 15)
+    milestone_repo.get_by_id.return_value = Milestone(
+        "m1", "p1", "Sprint 1", due
+    )
+    project_repo.get_by_id.return_value = Project(
+        "p1", "AI Project", "desc", team_id="t1", created_at=due
+    )
+    team_repo.get_by_id.return_value = Team("t1", "Alpha", 4, ["s1", "s2"])
 
-    svc = LoanService(loan_repo, book_repo, member_repo, fine_strategy, event_bus)
-    svc.borrow("m1", "123")
+    svc = MilestoneService(
+        milestone_repo, submission_repo, penalty_repo,
+        project_repo, team_repo, student_repo,
+        FlatPenaltyStrategy(2), bus,
+        clock=lambda: due + timedelta(days=3),
+    )
+    _, penalties = svc.submit("m1")
 
-    assert book.available_copies == 1
-    book_repo.update.assert_called_once_with(book)
+    assert len(penalties) == 2          # one per team member
+    assert all(p.points == 6 for p in penalties)  # 3 days × 2 pts
+    bus.notify_milestone_status.assert_called_once()
 ```
 
 Rules:
@@ -85,30 +103,41 @@ Integration tests wire real in-memory implementations together through the full 
 and verify end-to-end workflows.
 
 ```python
-# tests/integration/test_borrow_flow.py
-from storage.memory.book_repo import InMemoryBookRepository
-from storage.memory.member_repo import InMemoryMemberRepository
-from storage.memory.loan_repo import InMemoryLoanRepository
-from services.fine_strategies import PerDayFineStrategy
-from utils.events import EventBus
-from services.loan_service import LoanService
+# tests/integration/test_project_milestone_workflow.py
+from datetime import datetime, timedelta
+from storage.memory.student_repo import InMemoryStudentRepository
+from storage.memory.team_repo import InMemoryTeamRepository
+from storage.memory.project_repo import InMemoryProjectRepository
+from storage.memory.milestone_repo import InMemoryMilestoneRepository
+from storage.memory.submission_repo import InMemorySubmissionRepository
+from storage.memory.penalty_repo import InMemoryPenaltyRepository
+from services.penalty_strategies import FlatPenaltyStrategy
+from services.events import EventBus
+from services.milestone_service import MilestoneService
 
-def test_full_borrow_and_return_updates_availability():
-    books   = InMemoryBookRepository()
-    members = InMemoryMemberRepository()
-    loans   = InMemoryLoanRepository()
-    bus     = EventBus()
-    svc     = LoanService(loans, books, members, PerDayFineStrategy(), bus)
+def test_late_submission_stores_penalties():
+    students    = InMemoryStudentRepository()
+    teams       = InMemoryTeamRepository()
+    projects    = InMemoryProjectRepository()
+    milestones  = InMemoryMilestoneRepository()
+    submissions = InMemorySubmissionRepository()
+    penalties   = InMemoryPenaltyRepository()
+    bus         = EventBus()
+    due         = datetime(2025, 10, 15)
 
-    books.add(Book(isbn="978", title="Clean Code", author="Martin",
-                   year=2008, total_copies=1, available_copies=1))
-    members.add(Member(member_id="m1", name="Alice", email="a@b.com", active=True))
+    students.add(Student("s1", "Alice", StudentRole.MEMBER))
+    teams.add(Team("t1", "Alpha", 4, ["s1"]))
+    projects.add(Project("p1", "Capstone", "desc", team_id="t1", created_at=due))
+    milestones.add(Milestone("m1", "p1", "Sprint 1", due))
 
-    loan = svc.borrow("m1", "978")
-    assert books.get_by_isbn("978").available_copies == 0
-
-    svc.return_book(loan.loan_id)
-    assert books.get_by_isbn("978").available_copies == 1
+    svc = MilestoneService(
+        milestones, submissions, penalties, projects, teams, students,
+        FlatPenaltyStrategy(2), bus,
+        clock=lambda: due + timedelta(days=4),
+    )
+    _, created = svc.submit("m1")
+    assert len(created) == 1
+    assert created[0].points == 8
 ```
 
 ---
@@ -155,16 +184,18 @@ Use `# pragma: no cover` sparingly and only for unreachable defensive guards.
 
 ```python
 # Spy on a method without replacing it
-def test_event_published_on_return(mocker):
+def test_event_fired_on_late_submit(mocker):
     bus = EventBus()
-    spy = mocker.spy(bus, "publish")
+    spy = mocker.spy(bus, "notify_milestone_status")
     ...
     spy.assert_called_once()
 
-# Patch a module-level import
-def test_uses_today(mocker):
-    mocker.patch("services.loan_service.date", return_value=date(2025, 1, 1))
-    ...
+# Inject a controllable clock
+def test_submit_on_due_date_no_penalty():
+    due = datetime(2025, 10, 15)
+    svc = MilestoneService(..., clock=lambda: due)
+    _, penalties = svc.submit("m1")
+    assert penalties == []
 ```
 
 ---

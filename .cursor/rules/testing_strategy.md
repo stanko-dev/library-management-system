@@ -1,4 +1,4 @@
-# Testing Guide — Library Management System
+# Testing Strategy — Student Project Support System
 
 ## Toolchain
 
@@ -22,150 +22,150 @@ Never commit production code that does not have a corresponding test written fir
 
 ---
 
-## Test layout
+## What to test in each layer
 
-```
-tests/
-  unit/
-    models/          test_book.py, test_member.py, test_loan.py, test_fine.py
-    storage/         test_book_repo.py, test_member_repo.py, ...
-    services/        test_book_service.py, test_loan_service.py, ...
-    utils/           test_date_utils.py, test_validators.py
-  integration/
-    test_borrow_flow.py
-    test_return_flow.py
-    test_fine_flow.py
-    test_search_flow.py
-    test_notification_flow.py
-```
+### models/
 
-Target: **200+ tests** total across both layers.
+Cover every validation branch in `__post_init__`:
+- Empty or whitespace `id`, `title`, `name` → `ValueError`.
+- Out-of-range numeric fields (`capacity < 1`, `points <= 0`, negative counts).
+- `expires_at <= created_at` on `QueueRequest`.
+- Auto-set defaults (`Project.created_at` auto-set when `None`).
+- Property methods (`Team.is_full`, `Team.available_spots`).
+
+### storage/ (in-memory repos)
+
+For every repository:
+- `add` stores and `get_by_id` retrieves the same object.
+- `add` on a duplicate id raises `ValueError`.
+- `update` on a missing id raises `KeyError`.
+- `delete` on a missing id raises `KeyError`.
+- `list_all` reflects current state after add/delete.
+- All domain-specific query methods (`find_pending_by_team`, `total_unresolved_by_student`,
+  `find_overdue`, etc.) return correct subsets.
+
+Use `pytest.mark.parametrize` to run CRUD assertions across all seven repos with a
+single parametrized test.
+
+### services/ (unit tests with mocks)
+
+Cover every branch in each service method:
+
+**ProjectService:**
+- `create_project` with and without a team_id; unknown team_id raises `TeamNotFoundError`.
+- `assign_team` — happy path; ARCHIVED project raises `InvalidStatusTransitionError`.
+- `change_status` — all valid transitions; invalid transition raises; DRAFT→ACTIVE without
+  team raises.
+
+**MilestoneService:**
+- `submit` on time → `SUBMITTED`, no penalties.
+- `submit` late → `LATE`, one penalty per member, `missed_deadlines_count` incremented.
+- `submit` when team not found / no team assigned → no penalties, submission still created.
+- `submit` on already-submitted milestone → `AlreadySubmittedError`.
+- `mark_missed` → `MISSED`, penalties created, event fired.
+- Event bus `notify_milestone_status` called exactly once per submit/mark-missed.
+
+**TeamService:**
+- `join_or_queue` with space → student added, `active_projects_count` incremented.
+- `join_or_queue` full team → `QueueRequest` created.
+- `join_or_queue` blocked student → `StudentBlockedError`.
+- `join_or_queue` duplicate queue request → `DuplicateQueueRequestError`.
+- `leave_team` → member removed, count decremented (floor 0), `TeamSpotAvailableEvent` fired.
+- `expire_old` → only requests past `expires_at` are set to `EXPIRED`.
+- `get_next_in_queue` → respects priority (lower `active_projects_count` first, then FIFO).
+
+**MembershipService:**
+- `evaluate` → blocks when points ≥ threshold OR missed deadlines ≥ threshold.
+- `evaluate` → unblocks when both conditions clear.
+- `block` / `unblock` → force-override regardless of thresholds.
+- All three methods raise `StudentNotFoundError` for unknown student.
+
+**PenaltyStrategy:**
+- Each strategy: 0 days overdue → 0 points.
+- Each strategy: positive overdue → correct formula result.
+- `ProgressivePenaltyStrategy`: cap is respected.
+- `CappedPenaltyStrategy`: delegates to inner strategy, then clamps.
+- `WeekendExemptPenaltyStrategy`: Saturday and Sunday not counted.
+- `PenaltyStrategyFactory.from_name`: known names return correct type; unknown raises.
+
+**Observer / EventBus:**
+- Subscribe is idempotent (second subscribe of same observer has no effect).
+- Unsubscribe of unregistered observer raises `ValueError`.
+- Notify dispatches to a snapshot — observer may unsubscribe mid-dispatch without error.
+- `StudentNotifier.on_milestone_status_changed` records notification for each team member.
+- `StudentNotifier.on_team_spot_available` records notification for highest-priority
+  queued student only.
+
+### integration/
+
+Wire real repos + services (no mocks). Cover the three end-to-end scenarios:
+
+1. **Late submission → penalty → resolve → unblock**
+   - Project created, team assigned, milestone submitted late.
+   - Penalties stored; `evaluate()` blocks student.
+   - Penalties resolved; `evaluate()` unblocks student.
+
+2. **Full team → priority queue → leave → notify**
+   - Two students with different `active_projects_count` queue for a full team.
+   - A member leaves; the student with fewer active projects is notified, not the
+     one who queued first.
+
+3. **Missed deadlines → blocked → join rejected → unblocked → join succeeds**
+   - Student accumulates `missed_deadlines_count` via late submissions.
+   - `evaluate()` blocks; `join_or_queue` raises `StudentBlockedError`.
+   - `unblock()` called; `join_or_queue` succeeds.
 
 ---
 
-## Unit tests
-
-Unit tests verify a single class in isolation. All collaborators are mocked.
+## Parametrize for breadth
 
 ```python
-# tests/unit/services/test_loan_service.py
-from unittest.mock import MagicMock
-from services.loan_service import LoanService
-
-def test_borrow_decrements_available_copies():
-    loan_repo    = MagicMock()
-    book_repo    = MagicMock()
-    member_repo  = MagicMock()
-    fine_strategy = MagicMock()
-    event_bus    = MagicMock()
-
-    book = Book(isbn="123", title="X", author="Y", year=2020,
-                total_copies=2, available_copies=2)
-    book_repo.get_by_isbn.return_value = book
-    member_repo.get_by_id.return_value = Member(member_id="m1", name="A",
-                                                 email="a@b.com", active=True)
-
-    svc = LoanService(loan_repo, book_repo, member_repo, fine_strategy, event_bus)
-    svc.borrow("m1", "123")
-
-    assert book.available_copies == 1
-    book_repo.update.assert_called_once_with(book)
+@pytest.mark.parametrize("days_late,expected_points", [
+    (0, 0),
+    (1, 2),
+    (3, 6),
+    (7, 14),
+])
+def test_flat_strategy_various_overdue(days_late, expected_points):
+    strategy = FlatPenaltyStrategy(points_per_day=2)
+    due = date(2025, 10, 15)
+    result = strategy.calculate(due, due + timedelta(days=days_late))
+    assert result == expected_points
 ```
 
-Rules:
-- One `assert` per logical concept (multiple asserts for one scenario are fine).
-- Never hit real storage — always inject mocks.
-- Name tests `test_<method>_<scenario>_<expected_outcome>`.
+Use parametrize wherever a method has a clear input→output table (strategy formulas,
+validation edge cases, status transitions).
 
 ---
 
-## Integration tests
+## Clock injection pattern
 
-Integration tests wire real in-memory implementations together through the full stack
-and verify end-to-end workflows.
+Never call `datetime.now()` directly in tests. All services accept an injectable clock:
 
 ```python
-# tests/integration/test_borrow_flow.py
-from storage.memory.book_repo import InMemoryBookRepository
-from storage.memory.member_repo import InMemoryMemberRepository
-from storage.memory.loan_repo import InMemoryLoanRepository
-from services.fine_strategies import PerDayFineStrategy
-from utils.events import EventBus
-from services.loan_service import LoanService
+# Freeze time at due date (on-time submission)
+svc = MilestoneService(..., clock=lambda: due)
 
-def test_full_borrow_and_return_updates_availability():
-    books   = InMemoryBookRepository()
-    members = InMemoryMemberRepository()
-    loans   = InMemoryLoanRepository()
-    bus     = EventBus()
-    svc     = LoanService(loans, books, members, PerDayFineStrategy(), bus)
-
-    books.add(Book(isbn="978", title="Clean Code", author="Martin",
-                   year=2008, total_copies=1, available_copies=1))
-    members.add(Member(member_id="m1", name="Alice", email="a@b.com", active=True))
-
-    loan = svc.borrow("m1", "978")
-    assert books.get_by_isbn("978").available_copies == 0
-
-    svc.return_book(loan.loan_id)
-    assert books.get_by_isbn("978").available_copies == 1
+# Advance time (late submission)
+svc = MilestoneService(..., clock=lambda: due + timedelta(days=3))
 ```
 
----
-
-## Coverage
-
-### Run locally
-
-```bash
-pytest --cov=src --cov-branch --cov-report=term-missing
-```
-
-### Generate all report formats (CI)
-
-```bash
-pytest \
-  --cov=src \
-  --cov-branch \
-  --cov-report=term-missing \
-  --cov-report=xml:coverage.xml \
-  --cov-report=html:htmlcov \
-  --junitxml=junit.xml
-```
-
-### Artifacts
-
-| File | Consumer |
-|---|---|
-| `coverage.xml` | SonarQube / SonarCloud |
-| `junit.xml` | CI test-results panel |
-| `htmlcov/` | Human review |
-
-### Target
-
-**Branch coverage >= 85%.** The assignment minimum is 70%; the extra margin accounts for
-edge-case branches exposed during integration testing.
-
-A branch is considered covered only when both the true and false paths are exercised.
-Use `# pragma: no cover` sparingly and only for unreachable defensive guards.
-
----
-
-## pytest-mock patterns
+For integration tests, use the advanceable `Clock` helper from `tests/integration/conftest.py`:
 
 ```python
-# Spy on a method without replacing it
-def test_event_published_on_return(mocker):
-    bus = EventBus()
-    spy = mocker.spy(bus, "publish")
-    ...
-    spy.assert_called_once()
-
-# Patch a module-level import
-def test_uses_today(mocker):
-    mocker.patch("services.loan_service.date", return_value=date(2025, 1, 1))
-    ...
+clock.set(due + timedelta(days=5))   # jump to specific instant
+clock.advance(days=2)                # relative advance
 ```
+
+---
+
+## Coverage target
+
+**Branch coverage >= 85%.** Every `if` / `else` / `elif`, every `or` / `and` short-circuit,
+and every loop body must be exercised by at least one test.
+
+Run `pytest --cov=src --cov-branch --cov-report=term-missing` and inspect the
+`Missing` column. Add targeted tests for any uncovered branch before merging.
 
 ---
 

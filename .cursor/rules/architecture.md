@@ -1,4 +1,4 @@
-# Architecture — In-Memory Library Management System
+# Architecture — In-Memory Student Project Support System
 
 ## Layer overview
 
@@ -14,33 +14,39 @@ Each layer depends only on the layer to its left via abstractions, never on conc
 
 **Responsibility:** pure data — no business logic, no I/O.
 
-Contains dataclass or plain-class entities:
-- `Book` — isbn, title, author, year, total_copies, available_copies
-- `Member` — member_id, name, email, active
-- `Loan` — loan_id, book_isbn, member_id, loan_date, due_date, return_date
-- `Fine` — fine_id, loan_id, amount, paid
+Contains dataclass entities:
+- `Student` — id, name, role (LEADER/MEMBER), is_blocked, active_projects_count, missed_deadlines_count
+- `Team` — id, name, capacity, member_ids
+- `Project` — id, title, description, status (DRAFT/ACTIVE/COMPLETED/ARCHIVED), team_id, created_at
+- `Milestone` — id, project_id, title, due_date, status (PENDING/SUBMITTED/LATE/MISSED), submitted_at
+- `Submission` — id, milestone_id, team_id, submitted_at
+- `Penalty` — id, student_id, milestone_id, points, is_resolved
+- `QueueRequest` — id, student_id, team_id, created_at, expires_at, status (PENDING/FULFILLED/EXPIRED/CANCELLED)
 
 Rules:
 - All fields are typed.
-- Validation (e.g. negative copies) raises `ValueError`, not a service exception.
+- Validation (e.g. negative counts, empty id) raises `ValueError` in `__post_init__`, not a service exception.
 - No imports from `storage` or `services`.
 
 ---
 
 ## storage/
 
-**Responsibility:** data persistence — currently all in-memory via plain Python dicts/lists.
+**Responsibility:** data persistence — currently all in-memory via plain Python dicts.
 
 ### Sub-structure
 
 ```
 storage/
-  interfaces.py   # abc.ABC repository contracts
+  interfaces.py                  # abc.ABC repository contracts
   memory/
-    book_repo.py
-    member_repo.py
-    loan_repo.py
-    fine_repo.py
+    student_repo.py
+    team_repo.py
+    project_repo.py
+    milestone_repo.py
+    submission_repo.py
+    penalty_repo.py
+    queue_request_repo.py
 ```
 
 ### Repository interfaces (interfaces.py)
@@ -48,29 +54,31 @@ storage/
 Every repository is an `abc.ABC` with `@abstractmethod` operations:
 
 ```python
-class BookRepository(ABC):
+class StudentRepository(ABC):
     @abstractmethod
-    def add(self, book: Book) -> None: ...
+    def add(self, student: Student) -> None: ...
     @abstractmethod
-    def get_by_isbn(self, isbn: str) -> Book | None: ...
+    def get_by_id(self, student_id: str) -> Student | None: ...
     @abstractmethod
-    def list_all(self) -> list[Book]: ...
+    def list_all(self) -> list[Student]: ...
     @abstractmethod
-    def update(self, book: Book) -> None: ...
+    def update(self, student: Student) -> None: ...
     @abstractmethod
-    def delete(self, isbn: str) -> None: ...
+    def delete(self, student_id: str) -> None: ...
 ```
 
-The same pattern applies to `MemberRepository`, `LoanRepository`, and `FineRepository`.
+The same CRUD pattern applies to all seven repositories. Specialised query methods
+(e.g. `find_pending_by_team`, `total_unresolved_by_student`, `find_overdue`) are
+declared on the relevant ABCs only — Interface Segregation in practice.
 
 ### In-memory implementations
 
-Concrete classes (e.g. `InMemoryBookRepository(BookRepository)`) store data in `dict[str, Book]`.
-They import only from `models/`; they have no knowledge of services.
+Concrete classes (e.g. `InMemoryStudentRepository(StudentRepository)`) store data in
+`dict[str, Student]`. They import only from `models/`; they have no knowledge of services.
 
 **Why ABCs decouple services from storage:**
-Services receive a `BookRepository` (the ABC) via constructor injection. The service never calls
-`InMemoryBookRepository()` directly. This means:
+Services receive a `StudentRepository` (the ABC) via constructor injection. The service
+never calls `InMemoryStudentRepository()` directly. This means:
 - The in-memory impl can be swapped for a SQL impl without touching services.
 - Unit tests inject a `MagicMock` that satisfies the ABC interface.
 
@@ -78,38 +86,41 @@ Services receive a `BookRepository` (the ABC) via constructor injection. The ser
 
 ## services/
 
-**Responsibility:** all business logic — borrowing, returning, searching, fine calculation.
+**Responsibility:** all business logic — project lifecycle, milestone submissions, team
+membership, penalty calculation, and student blocking.
 
 ### Key services
 
 | Service | Depends on |
 |---|---|
-| `BookService` | `BookRepository` |
-| `MemberService` | `MemberRepository` |
-| `LoanService` | `LoanRepository`, `BookRepository`, `MemberRepository`, `FineStrategy`, `EventBus` |
-| `FineService` | `FineRepository`, `FineStrategy` |
-| `SearchService` | `BookRepository`, `MemberRepository` |
+| `ProjectService` | `ProjectRepository`, `TeamRepository` |
+| `MilestoneService` | `MilestoneRepository`, `SubmissionRepository`, `PenaltyRepository`, `ProjectRepository`, `TeamRepository`, `StudentRepository`, `PenaltyStrategy`, `DeadlineSubject` |
+| `TeamService` | `TeamRepository`, `StudentRepository`, `QueueRequestRepository`, `DeadlineSubject` |
+| `MembershipService` | `StudentRepository`, `PenaltyRepository` |
 
 ### Dependency Injection
 
 All dependencies are injected through `__init__`:
 
 ```python
-class LoanService:
+class MilestoneService:
     def __init__(
         self,
-        loan_repo: LoanRepository,
-        book_repo: BookRepository,
-        member_repo: MemberRepository,
-        fine_strategy: FineStrategy,
-        event_bus: EventBus,
+        milestone_repo: MilestoneRepository,
+        submission_repo: SubmissionRepository,
+        penalty_repo: PenaltyRepository,
+        project_repo: ProjectRepository,
+        team_repo: TeamRepository,
+        student_repo: StudentRepository,
+        penalty_strategy: PenaltyStrategy,
+        event_bus: DeadlineSubject,
+        clock: Callable[[], datetime] = datetime.now,
     ) -> None:
-        self._loan_repo = loan_repo
         ...
 ```
 
-A factory or composition root (e.g. `utils/container.py`) wires concrete implementations
-together and is the only place that calls `InMemory*` constructors.
+A composition root (e.g. the integration-test `conftest.py`) wires concrete
+implementations together and is the only place that calls `InMemory*` constructors.
 
 ---
 
@@ -117,36 +128,43 @@ together and is the only place that calls `InMemory*` constructors.
 
 **Responsibility:** cross-cutting concerns that belong to no single layer.
 
-- `date_utils.py` — date arithmetic helpers (due-date calculation, days-overdue).
-- `validators.py` — shared string/format validators (ISBN format, email format).
-- `container.py` — composition root; builds the full object graph for production use.
-- `exceptions.py` — domain exception hierarchy (`BookNotFoundError`, `MemberNotActiveError`, …).
+- `exceptions.py` — domain exception hierarchy (`StudentNotFoundError`, `TeamFullError`,
+  `InvalidStatusTransitionError`, `AlreadySubmittedError`, `DuplicateQueueRequestError`, …).
+
+`utils/` imports nothing from `services/` or `storage/`.
 
 ---
 
 ## GoF Pattern locations
 
-### Strategy — fine calculation
+### Strategy — penalty calculation
 
 ```
-storage/interfaces.py        → FineStrategy(ABC)
-src/services/fine_strategies.py → PerDayFineStrategy, TieredFineStrategy, ...
+services/penalty_strategies.py  → PenaltyStrategy(ABC)
+                                → FlatPenaltyStrategy
+                                → ProgressivePenaltyStrategy
+                                → WeekendExemptPenaltyStrategy
+                                → CappedPenaltyStrategy  (Decorator)
+                                → PenaltyStrategyFactory
 ```
 
-`LoanService` receives a `FineStrategy` and calls `strategy.calculate(days_overdue)`.
-Switching the fine policy requires only a different strategy object, not a code change.
+`MilestoneService` receives a `PenaltyStrategy` and calls
+`strategy.calculate(due_date, submitted_date)`. Switching the penalty policy requires
+only a different strategy object at the composition root, not a code change.
 
-### Observer — book availability notification
+### Observer — milestone status and team-spot notifications
 
 ```
-utils/events.py   → EventBus, BookAvailableEvent
-services/         → LoanService publishes BookAvailableEvent on book return
-                  → NotificationService subscribes and records notifications
+services/events.py        → DeadlineSubject(ABC), DeadlineObserver(ABC)
+                          → EventBus (implements DeadlineSubject)
+                          → MilestoneStatusChangedEvent, TeamSpotAvailableEvent
+services/notification.py  → StudentNotifier (implements DeadlineObserver)
 ```
 
-`LoanService` holds an `EventBus` reference. On `return_book`, it publishes
-`BookAvailableEvent(isbn)`. `NotificationService` (or any subscriber) reacts without
-`LoanService` knowing what happens next — Open/Closed in action.
+`MilestoneService` publishes `MilestoneStatusChangedEvent` after every status change.
+`TeamService` publishes `TeamSpotAvailableEvent` after a member leaves. `StudentNotifier`
+reacts by recording `Notification` objects — services have no knowledge of what happens
+next (Open/Closed in action).
 
 ---
 
@@ -155,7 +173,7 @@ services/         → LoanService publishes BookAvailableEvent on book return
 ```
 services  →  storage interfaces (ABC)  ←  storage implementations
 services  →  models
-services  →  utils (exceptions, events)
+services  →  utils (exceptions, events, penalty_strategies)
 storage   →  models
 utils     →  (nothing in src)
 ```

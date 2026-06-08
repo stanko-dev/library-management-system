@@ -18,7 +18,7 @@
      Same dialog as above → select "Coverage" → copy the Markdown.
 ──────────────────────────────────────────────────────────────────────────── -->
 
-[![CI](https://github.com/<OWNER>/<REPO>/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/ci-pipeline.yml)
+[![CI](https://github.com/stanko-dev/library-management-system/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/stanko-dev/library-management-system/actions/workflows/ci-pipeline.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=stanko-dev_library-management-system&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=stanko-dev_library-management-system)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=stanko-dev_library-management-system&metric=coverage)](https://sonarcloud.io/summary/new_code?id=stanko-dev_library-management-system)
 
