@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 from .enums import ProjectStatus
 
 
@@ -10,7 +11,7 @@ class Project:
     description: str
     status: ProjectStatus = ProjectStatus.DRAFT
     team_id: str | None = None
-    created_at: datetime = None  # type: ignore[assignment]
+    created_at: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():

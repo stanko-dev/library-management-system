@@ -75,9 +75,9 @@ class EventBus(DeadlineSubject):
         self._observers.remove(observer)
 
     def notify_milestone_status(self, event: MilestoneStatusChangedEvent) -> None:
-        for observer in list(self._observers):
+        for observer in self._observers[:]:
             observer.on_milestone_status_changed(event)
 
     def notify_team_spot(self, event: TeamSpotAvailableEvent) -> None:
-        for observer in list(self._observers):
+        for observer in self._observers[:]:
             observer.on_team_spot_available(event)
