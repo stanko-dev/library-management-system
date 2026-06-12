@@ -88,7 +88,7 @@ A `PenaltyStrategy` interface with interchangeable algorithms. `MilestoneService
 ```mermaid
 classDiagram
     class PenaltyStrategy {
-        <<interface>>
+        <<abstract>>
         +calculate(days_late) int
     }
     PenaltyStrategy <|.. FlatPenaltyStrategy
