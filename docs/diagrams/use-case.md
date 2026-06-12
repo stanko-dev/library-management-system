@@ -6,7 +6,7 @@ Actors and their interactions with the Student Project Support System.
 - **Coordinator** — academic staff who creates and manages projects, assigns teams, applies penalties, and manages student standing.
 
 ```mermaid
-graph LR
+flowchart LR
     %% ── Actors ──────────────────────────────────────────────────────
     Student(("Student"))
     Coordinator(("Coordinator"))
@@ -23,9 +23,9 @@ graph LR
         UC6(["Block Student"])
 
         %% ── «include» relationships ─────────────────────────────────
-        CAL["«include»\nCalculate Penalty Points"]
-        CHK["«include»\nCheck Student Eligibility"]
-        EVL["«include»\nEvaluate Block Thresholds"]
+        CAL(["Calculate Penalty Points"])
+        CHK(["Check Student Eligibility"])
+        EVL(["Evaluate Block Thresholds"])
 
         UC3 -.->|«include»| CAL
         UC4 -.->|«include»| CHK
